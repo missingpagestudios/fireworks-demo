@@ -169,6 +169,7 @@ func spawn(pos: Vector2, vel: Vector2, overrides: Dictionary = {}) -> void:
 		"strobe_rate": overrides.get("strobe_rate", 18.0),
 		"strobe_t": 0.0,
 		"flicker_seed": rng.randf() * 10.0,
+		"streak_length": overrides.get("streak_length", 0.0),
 		"meta": overrides.get("meta", {}),
 	}
 	particles.append(p)
@@ -354,12 +355,15 @@ func stop_endless() -> void:
 # --- Apocalypse Show ---------------------------------------------------
 
 var host_ref = null   # set by world.gd; used for camera shake + fade
+var _show_meteor_dir := 0    # picked on first meteor spawn per show: +1 or -1
 
 func _launch_apocalypse_show(_fw: Dictionary, ground_pos: Vector2) -> void:
 	# 60-second cinematic: distant meteors in the background throughout,
 	# a curated firework crescendo, then a single huge meteor strike + fade.
 	var screen_w := 1920.0
 	var ground_y: float = ground_pos.y
+	# Reset per-show meteor direction so it gets randomized this run
+	_show_meteor_dir = 0
 
 	# --- Distant meteors: 5 entering at t=0, persist whole 60s ---
 	# Each lives the full show, very slow descent (~5 px/sec), long
@@ -419,20 +423,26 @@ func _catalog_entry(id: int) -> Dictionary:
 	return {}
 
 func _spawn_distant_meteor() -> void:
-	# One of the 5 persistent background meteors. Lives the full 60s,
-	# very slow descent (~5 px/sec down), small and dim — way off in the
-	# atmosphere. Long trail shows the streak across the sky.
+	# Persistent background meteor — way off in the atmosphere, very slow
+	# drift across the sky. All 5 move in the SAME direction (picked once
+	# per show via _show_meteor_dir) for dramatic effect. Long persistent
+	# trails + atmospheric shimmer.
 	var screen_w := 1920.0
-	var from_left := rng.randf() < 0.5
+	# Pick the show-wide direction on first call
+	if _show_meteor_dir == 0:
+		_show_meteor_dir = 1 if rng.randf() < 0.5 else -1
+	var dir_sign: float = float(_show_meteor_dir)
 	var start_x: float
-	if from_left:
-		start_x = rng.randf_range(-50.0, screen_w * 0.45)
+	if dir_sign > 0:
+		# All moving left-to-right — start on left side
+		start_x = rng.randf_range(-80.0, screen_w * 0.45)
 	else:
-		start_x = rng.randf_range(screen_w * 0.55, screen_w + 50.0)
-	var start_y: float = rng.randf_range(20.0, 200.0)
-	# Velocity: slight horizontal drift + slow downward
-	var vx: float = rng.randf_range(8.0, 18.0) * (1.0 if from_left else -1.0)
-	var vy: float = rng.randf_range(4.0, 7.0)   # very slow descent
+		# All moving right-to-left — start on right side
+		start_x = rng.randf_range(screen_w * 0.55, screen_w + 80.0)
+	var start_y: float = rng.randf_range(20.0, 220.0)
+	# Velocity: same direction across all meteors, very slow drift
+	var vx: float = rng.randf_range(3.0, 6.0) * dir_sign
+	var vy: float = rng.randf_range(1.5, 3.0)
 	var v := Vector2(vx, vy)
 	var life: float = 60.0
 	var hue_pick := rng.randf()
@@ -443,30 +453,33 @@ func _spawn_distant_meteor() -> void:
 		col = Color(1.0, 0.75, 0.40)
 	else:
 		col = Color(1.0, 0.55, 0.28)
-	# Sized just under the strike meteor (which is size 14 / halo 2.6).
 	var head_size: float = rng.randf_range(9.0, 12.0)
+	# Long fixed-length backward streak rather than frame-history trail
+	# (slow movement would make a history-trail nearly invisible).
+	var streak_px: float = rng.randf_range(380.0, 540.0)
 	spawn(Vector2(start_x, start_y), v, {
 		"color": col,
 		"size": head_size,
 		"life": life,
-		"gravity": 0.05,
+		"gravity": 0.02,
 		"drag": 1.0,
-		"trail_len": rng.randi_range(120, 160),
-		"trail_color": Color(col.r * 0.95, col.g * 0.65, col.b * 0.35, 0.8),
+		"trail_len": 0,
+		"streak_length": streak_px,
+		"trail_color": Color(col.r * 0.95, col.g * 0.65, col.b * 0.35, 0.85),
 		"halo": 2.0,
-		"fade": "none",
+		"fade": "atmosphere",
 	})
-	# Inner-bright companion for thicker glowing head
 	spawn(Vector2(start_x, start_y), v, {
 		"color": Color(1.0, 0.96, 0.88),
 		"size": head_size * 0.55,
 		"life": life,
-		"gravity": 0.05,
+		"gravity": 0.02,
 		"drag": 1.0,
-		"trail_len": rng.randi_range(60, 90),
-		"trail_color": Color(1.0, 0.85, 0.55, 0.55),
+		"trail_len": 0,
+		"streak_length": streak_px * 0.65,
+		"trail_color": Color(1.0, 0.85, 0.55, 0.6),
 		"halo": 1.1,
-		"fade": "none",
+		"fade": "atmosphere",
 	})
 
 func _strike_meteor_enter(impact_pos: Vector2) -> void:
@@ -984,24 +997,51 @@ func _draw() -> void:
 				alpha = life_t * (1.0 if (sin(p.strobe_t * p.strobe_rate) > 0.0) else 0.12)
 			"shimmer":
 				alpha = life_t * (0.4 + 0.6 * sin((p.life_max - p.life) * 45.0 + p.flicker_seed))
+			"atmosphere":
+				# Gentle pulsing shimmer with no life-based decay — for distant
+				# meteors that need to stay visible the full show.
+				alpha = 0.65 + 0.35 * sin((p.life_max - p.life) * 3.5 + p.flicker_seed)
 			_:
 				alpha = life_t
 		if alpha <= 0.001:
 			continue
-		# Trail collection (will be drawn in one batched call below)
-		var trail: Array = p.trail
-		var trail_n: int = trail.size()
-		if trail_n >= 2:
+		# Trail collection (will be drawn in one batched call below).
+		# Particles with streak_length > 0 use a fixed-length backward streak
+		# along -velocity (good for very slow particles where frame-history
+		# would be too short to be visible). Otherwise use frame-history.
+		var streak_len: float = p.streak_length
+		if streak_len > 0.0 and p.vel.length_squared() > 0.01:
+			var streak_dir: Vector2 = -p.vel.normalized()
+			var head: Vector2 = p.pos
+			var tail: Vector2 = head + streak_dir * streak_len
 			var tc: Color = p.trail_color
-			var base_a: float = tc.a * alpha * 0.9
-			var inv_n: float = 1.0 / float(trail_n - 1)
-			for i in trail_n - 1:
-				segs.append(trail[i])
-				segs.append(trail[i + 1])
-				var fade_a: float = float(i) * inv_n * base_a
+			var base_a: float = tc.a * alpha * 0.95
+			var segs_n: int = 14
+			for i in segs_n:
+				var t1: float = float(i) / float(segs_n)
+				var t2: float = float(i + 1) / float(segs_n)
+				var p1: Vector2 = head.lerp(tail, t1)
+				var p2: Vector2 = head.lerp(tail, t2)
+				segs.append(p1)
+				segs.append(p2)
+				var fade_a: float = (1.0 - t1) * base_a
 				var seg_col := Color(tc.r, tc.g, tc.b, fade_a)
 				cols.append(seg_col)
 				cols.append(seg_col)
+		else:
+			var trail: Array = p.trail
+			var trail_n: int = trail.size()
+			if trail_n >= 2:
+				var tc2: Color = p.trail_color
+				var base_a2: float = tc2.a * alpha * 0.9
+				var inv_n: float = 1.0 / float(trail_n - 1)
+				for i in trail_n - 1:
+					segs.append(trail[i])
+					segs.append(trail[i + 1])
+					var fade_a2: float = float(i) * inv_n * base_a2
+					var seg_col2 := Color(tc2.r, tc2.g, tc2.b, fade_a2)
+					cols.append(seg_col2)
+					cols.append(seg_col2)
 		# Spark texture — single draw call per particle
 		var c: Color = p.color
 		var radius: float = p.size * 3.4 * p.halo
