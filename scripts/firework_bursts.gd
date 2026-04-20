@@ -35,7 +35,7 @@ static func catalog() -> Array:
 		{"id": 4,  "name": "Ground Spinner",  "category": "Real — Backyard",   "launch": "ground", "color": COL_GOLD,   "settle_time": 4.0},
 		{"id": 5,  "name": "Fountain",        "category": "Real — Backyard",   "launch": "ground", "color": COL_GOLD,   "settle_time": 4.5},
 		{"id": 6,  "name": "Black Snake",     "category": "Real — Backyard",   "launch": "none",   "color": COL_SMOKE,  "settle_time": 4.5},
-		{"id": 7,  "name": "Smoke Bomb",      "category": "Real — Backyard",   "launch": "none",   "color": COL_PURPLE, "settle_time": 4.5},
+		{"id": 7,  "name": "Smoke Bomb",      "category": "Real — Backyard",   "launch": "mortar", "apex": 460.0, "hang": 0.10, "color": Color(0.55, 0.55, 0.55), "trail_kind": "smoke", "settle_time": 5.5},
 		{"id": 8,  "name": "Crackle Ball",    "category": "Real — Backyard",   "launch": "mortar", "apex": 560.0, "hang": 0.12, "color": COL_WHITE, "settle_time": 4.5},
 		{"id": 9,  "name": "Firecracker",     "category": "Real — Backyard",   "launch": "ground", "color": COL_WHITE,  "settle_time": 2.5, "shake": 4.0},
 		{"id": 10, "name": "Small Mortar",    "category": "Real — Backyard",   "launch": "mortar", "apex": 540.0, "hang": 0.12, "color": COL_BLUE,  "settle_time": 4.0, "shake": 3.0},
@@ -292,23 +292,32 @@ static func _black_snake(field, pos: Vector2) -> void:
 
 static func _smoke_bomb(field, pos: Vector2) -> void:
 	var rng = field.rng
-	# Real smoke bomb: a colored opaque cloud rises and disperses.
-	# Render on the non-additive smoke layer so the color reads correctly.
+	# Aerial smoke bomb: small colored "boom" of opaque smoke at apex.
+	# Pick one bright hue so the cloud reads as a single color.
 	var base_hue: float = rng.randf()
+	var col := Color.from_hsv(base_hue, 0.78, 0.85)
+	# Small initial pop — a few faster puffs in a ring
+	for k in 12:
+		var a = TAU * (float(k) / 12.0) + rng.randf_range(-0.15, 0.15)
+		var s = rng.randf_range(60, 110)
+		field.spawn_smoke(pos, Vector2(cos(a), sin(a) * 0.7) * s, {
+			"color": col, "size": 11.0, "life": 2.8,
+			"gravity": -10.0, "drag": 0.4,
+			"alpha_max": 0.75, "size_growth": 18.0,
+		})
+	# Dense central cloud — slower puffs that linger
 	var emit_puff = func():
-		for k in 6:
+		for k in 4:
 			var a = rng.randf() * TAU
-			var s = rng.randf_range(20, 90)
-			var hue = fposmod(base_hue + rng.randf_range(-0.04, 0.04), 1.0)
-			var col := Color.from_hsv(hue, 0.78, 0.85)
-			field.spawn_smoke(pos + Vector2(rng.randf_range(-6, 6), 0),
-				Vector2(cos(a), sin(a) * 0.6 - 0.4) * s, {
-				"color": col, "size": 14.0, "life": 3.5,
-				"gravity": -18.0, "drag": 0.45,
-				"alpha_max": 0.7, "size_growth": 22.0,
+			var s = rng.randf_range(15, 55)
+			field.spawn_smoke(pos + Vector2(rng.randf_range(-8, 8), rng.randf_range(-8, 8)),
+				Vector2(cos(a), sin(a) * 0.5 - 0.2) * s, {
+				"color": col, "size": 14.0, "life": 3.2,
+				"gravity": -16.0, "drag": 0.42,
+				"alpha_max": 0.65, "size_growth": 20.0,
 			})
-	for t in 60:
-		field._schedule(t * 0.05, emit_puff)
+	for t in 12:
+		field._schedule(t * 0.08, emit_puff)
 
 static func _crackle_ball(field, pos: Vector2) -> void:
 	var rng = field.rng

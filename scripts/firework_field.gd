@@ -149,6 +149,7 @@ func _launch_mortar(fw: Dictionary, ground_pos: Vector2) -> void:
 	var apex_y: float = fw.get("apex", 340.0)    # target apex Y in screen coords
 	var hang: float = fw.get("hang", 0.15)        # seconds to hold/drop after apex
 	var color_primary: Color = fw.get("color", Color(1, 0.7, 0.3))
+	var trail_kind: String = fw.get("trail_kind", "fire")
 	var rise_h: float = ground_pos.y - apex_y
 	var g := 260.0   # reduced gravity on ascending mortar — looks smoother
 	var v_y: float = -sqrt(2.0 * g * rise_h)
@@ -157,16 +158,16 @@ func _launch_mortar(fw: Dictionary, ground_pos: Vector2) -> void:
 		"pos": ground_pos,
 		"vel": Vector2(rng.randf_range(-15.0, 15.0), v_y),
 		"color": color_primary,
-		"size": 2.2,
+		"size": 1.6 if trail_kind == "smoke" else 2.2,
 		"life": t_apex + hang + 0.05,
 		"life_max": t_apex + hang + 0.05,
 		"gravity": g,
 		"drag": 1.0,
 		"fade": "none",
-		"trail_len": 14,
+		"trail_len": 0 if trail_kind == "smoke" else 14,
 		"trail": [],
-		"trail_color": Color(1.0, 0.75, 0.35, 0.85),
-		"halo": 1.3,
+		"trail_color": Color(0.7, 0.7, 0.7, 0.4) if trail_kind == "smoke" else Color(1.0, 0.75, 0.35, 0.85),
+		"halo": 0.6 if trail_kind == "smoke" else 1.3,
 		"mode": "mortar",
 		"strobe_rate": 0.0,
 		"strobe_t": 0.0,
@@ -177,6 +178,7 @@ func _launch_mortar(fw: Dictionary, ground_pos: Vector2) -> void:
 			"hang_time": hang,
 			"post_apex": 0.0,
 			"burst_queued": true,
+			"trail_kind": trail_kind,
 		},
 	}
 	particles.append(mortar)
@@ -326,8 +328,17 @@ func _process_particles(delta: float) -> void:
 					particles.remove_at(i)
 					i -= 1
 					continue
-			# Emit small yellow sparks behind mortar
-			if rng.randf() < 0.6:
+			# Emit trail behind mortar — fire sparks (default) or smoke puffs.
+			var trail_kind: String = p.meta.get("trail_kind", "fire")
+			if trail_kind == "smoke":
+				if rng.randf() < 0.85:
+					spawn_smoke(p.pos + Vector2(rng.randf_range(-3, 3), rng.randf_range(0, 6)),
+						Vector2(rng.randf_range(-12, 12), rng.randf_range(20, 40)), {
+						"color": Color(0.55, 0.55, 0.55), "size": 5.5,
+						"life": 1.4, "gravity": -8.0, "drag": 0.5,
+						"alpha_max": 0.45, "size_growth": 8.0,
+					})
+			elif rng.randf() < 0.6:
 				var spark_vel = -p.vel * 0.08 + Vector2(rng.randf_range(-25, 25), rng.randf_range(-10, 20))
 				spawn(p.pos, spark_vel, {
 					"color": Color(1.0, 0.9, 0.4),
