@@ -27,6 +27,7 @@ var _fade_target := 0.0
 var _fade_speed := 1.0
 var _flash_alpha := 0.0
 var _flash_decay := 1.0
+var _flash_hold := 0.0
 
 func _ready() -> void:
 	_banner.anchor_left = 0.0
@@ -208,9 +209,12 @@ func _process(delta: float) -> void:
 	_banner.modulate.a = _banner_alpha
 	# Fade overlay
 	_fade.color.a = move_toward(_fade.color.a, _fade_target, delta * _fade_speed)
-	# Flash overlay — exponential-ish decay
+	# Flash overlay — hold at peak then linear decay
 	if _flash_alpha > 0.0:
-		_flash_alpha = max(0.0, _flash_alpha - delta * _flash_decay)
+		if _flash_hold > 0.0:
+			_flash_hold = max(0.0, _flash_hold - delta)
+		else:
+			_flash_alpha = max(0.0, _flash_alpha - delta * _flash_decay)
 		_flash.color.a = _flash_alpha
 	# FPS overlay (smoothed) + particle/smoke counts
 	var fps: float = Engine.get_frames_per_second()
@@ -264,13 +268,15 @@ func cancel_fade() -> void:
 	_fade_speed = 4.0
 	_fade.color.a = 0.0
 	_flash_alpha = 0.0
+	_flash_hold = 0.0
 	_flash.color.a = 0.0
 
-func start_screen_flash(intensity: float, decay_seconds: float, tint: Color = Color(1, 1, 1)) -> void:
-	# Snap to peak intensity, then decay over `decay_seconds`. Multiple
-	# flashes can stack — we take the max so an in-flight flash isn't
-	# replaced by a smaller one.
+func start_screen_flash(intensity: float, decay_seconds: float, tint: Color = Color(1, 1, 1), hold_seconds: float = 0.0) -> void:
+	# Snap to peak intensity, optionally hold at peak for `hold_seconds`,
+	# then decay over `decay_seconds`. Multiple flashes can stack — peak
+	# always takes the max.
 	if intensity > _flash_alpha:
 		_flash_alpha = intensity
 	_flash_decay = 1.0 / max(decay_seconds, 0.05)
+	_flash_hold = max(_flash_hold, hold_seconds)
 	_flash.color = Color(tint.r, tint.g, tint.b, _flash_alpha)

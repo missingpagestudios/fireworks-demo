@@ -417,9 +417,10 @@ func _launch_apocalypse_show(_fw: Dictionary, ground_pos: Vector2) -> void:
 	# --- The strike: meteor enters at 57.6s, impacts at 60.0s ---
 	_schedule(57.6, _strike_meteor_enter.bind(Vector2(screen_w * 0.5, ground_y)))
 	_schedule(60.0, _strike_meteor_impact.bind(Vector2(screen_w * 0.5, ground_y - 20)))
-	# Delay fade start so the multi-phase explosion gets full visual time
-	_schedule(61.8, _begin_fade_to_black)
-	# Return to menu after fade completes + hold
+	# Begin fade-to-black during the white flash hold, so as the white
+	# fades the black rises beneath it (smooth white -> black transition)
+	_schedule(61.7, _begin_fade_to_black)
+	# Return to menu after fade completes
 	_schedule(65.0, _show_complete)
 
 func _catalog_entry(id: int) -> Dictionary:
@@ -506,45 +507,45 @@ func _strike_meteor_enter(impact_pos: Vector2) -> void:
 	# Outer reddish corona
 	spawn(start, v, {
 		"color": Color(1.0, 0.42, 0.14),
-		"size": 14.0,
+		"size": 20.0,
 		"life": travel_time + 0.05,
 		"gravity": 8.0, "drag": 0.995,
-		"trail_len": 80,
-		"trail_color": Color(1.0, 0.38, 0.10, 0.85),
-		"halo": 2.6,
+		"trail_len": 100,
+		"trail_color": Color(1.0, 0.38, 0.10, 0.9),
+		"halo": 3.0,
 		"fade": "none",
 	})
 	# Mid orange body
 	spawn(start + Vector2(2, 1), v + Vector2(rng.randf_range(-2, 2), rng.randf_range(-2, 2)), {
 		"color": Color(1.0, 0.62, 0.22),
-		"size": 11.0,
+		"size": 16.0,
 		"life": travel_time + 0.05,
 		"gravity": 8.0, "drag": 0.995,
-		"trail_len": 72,
+		"trail_len": 90,
 		"trail_color": Color(1.0, 0.50, 0.16, 0.9),
-		"halo": 2.0,
+		"halo": 2.4,
 		"fade": "none",
 	})
 	# Inner bright core
 	spawn(start + Vector2(-1, 0), v, {
 		"color": Color(1.0, 0.85, 0.55),
-		"size": 7.5,
+		"size": 11.0,
 		"life": travel_time + 0.05,
 		"gravity": 8.0, "drag": 0.995,
-		"trail_len": 56,
-		"trail_color": Color(1.0, 0.78, 0.42, 0.8),
-		"halo": 1.5,
+		"trail_len": 70,
+		"trail_color": Color(1.0, 0.78, 0.42, 0.85),
+		"halo": 1.8,
 		"fade": "none",
 	})
 	# Hot white pinpoint
 	spawn(start, v, {
 		"color": Color(1.0, 0.98, 0.92),
-		"size": 4.0,
+		"size": 6.0,
 		"life": travel_time + 0.05,
 		"gravity": 8.0, "drag": 0.995,
-		"trail_len": 36,
-		"trail_color": Color(1.0, 0.95, 0.80, 0.7),
-		"halo": 1.0,
+		"trail_len": 50,
+		"trail_color": Color(1.0, 0.95, 0.80, 0.75),
+		"halo": 1.2,
 		"fade": "none",
 	})
 	# Heavy streaming embers shed from the meteor every 0.03s
@@ -552,6 +553,15 @@ func _strike_meteor_enter(impact_pos: Vector2) -> void:
 		_strike_ember(start, v, 0)
 	for i in 80:
 		_schedule(i * 0.03, emit_ember)
+	# Building rumble — small shakes that intensify as the meteor descends
+	var rumble = func(strength: float):
+		if host_ref != null and host_ref.has_method("request_shake"):
+			host_ref.request_shake(strength)
+	var rumble_steps := 14
+	for i in rumble_steps:
+		var t_offset: float = float(i) / float(rumble_steps - 1)
+		var strength: float = lerp(2.0, 16.0, t_offset)
+		_schedule(t_offset * 2.3, rumble.bind(strength))
 
 func _strike_ember(_start: Vector2, _v: Vector2, _t: int) -> void:
 	# Heavy embers shed from the strike meteor's current position. We find
@@ -583,24 +593,31 @@ func _strike_ember(_start: Vector2, _v: Vector2, _t: int) -> void:
 		})
 
 func _strike_meteor_impact(impact_pos: Vector2) -> void:
-	# APOCALYPSE — multi-phase explosion sequence over ~2.5 seconds.
-	# Phase 0 (t+0.0s): Initial blast — massive flash + first shockwave + main debris
+	# Clean cinematic sequence:
+	#   t+0.0  Initial impact — ring shockwave + flame burst (looks great)
+	#   t+0.6  Brief beat
+	#   t+0.7  Full white screen flash, holds 1.0s, then fades
+	#   t+1.7  White begins ramping into black via the fade overlay
+	#   t+4.5  Show complete (fade fully black)
 	_apoc_phase_initial(impact_pos)
-	# Phase 1 (t+0.3s): Secondary lateral blasts along the horizon
-	_schedule(0.30, _apoc_phase_lateral.bind(impact_pos))
-	# Phase 2 (t+0.6s): Second shockwave ring + more flame
-	_schedule(0.60, _apoc_phase_second_shockwave.bind(impact_pos))
-	# Phase 3 (t+1.0s): Third shockwave + roiling fire wall along ground
-	_schedule(1.00, _apoc_phase_fire_wall.bind(impact_pos))
-	# Phase 4 (t+1.4s): Massive rising smoke column
-	_schedule(1.40, _apoc_phase_smoke_column.bind(impact_pos))
-	# Phase 5 (t+1.8s): Final burst of upward debris and embers
-	_schedule(1.80, _apoc_phase_final_loft.bind(impact_pos))
-	# Camera shake: huge initial + sustained aftershakes
+	# Sustained white wash that takes over the screen after the ring
+	_schedule(0.7, _apoc_white_flash)
+	# Violent camera shake on impact + sustained heavy aftershakes
 	if host_ref != null and host_ref.has_method("request_shake"):
-		host_ref.request_shake(60.0)
+		host_ref.request_shake(110.0)
+	var heavy_after = func(s: float):
+		if host_ref != null and host_ref.has_method("request_shake"):
+			host_ref.request_shake(s)
 	for i in 12:
-		_schedule(0.15 + i * 0.15, _aftershake)
+		var s: float = lerp(70.0, 25.0, float(i) / 11.0)
+		_schedule(0.18 + i * 0.14, heavy_after.bind(s))
+
+func _apoc_white_flash() -> void:
+	# Full white screen flash that holds 1.0s then fades over 1.5s.
+	# The fade-to-black overlay is scheduled separately to take over
+	# as the white fades, so the screen smoothly transitions white -> black.
+	if host_ref != null and host_ref.has_method("start_screen_flash"):
+		host_ref.start_screen_flash(1.0, 1.5, Color(1, 1, 1), 1.0)
 
 func _apoc_phase_initial(impact_pos: Vector2) -> void:
 	# Full-screen white flash overlay (the actual 'screen blew up' moment)

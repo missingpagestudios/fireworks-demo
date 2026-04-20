@@ -29,8 +29,8 @@ func _ready() -> void:
 func start_fade_to_black(duration: float) -> void:
 	_hud.start_fade_to_black(duration)
 
-func start_screen_flash(intensity: float, decay_seconds: float, tint: Color = Color(1, 1, 1)) -> void:
-	_hud.start_screen_flash(intensity, decay_seconds, tint)
+func start_screen_flash(intensity: float, decay_seconds: float, tint: Color = Color(1, 1, 1), hold_seconds: float = 0.0) -> void:
+	_hud.start_screen_flash(intensity, decay_seconds, tint, hold_seconds)
 
 func on_show_complete() -> void:
 	# Apocalypse show finished — return to menu (stays on black until cleared)
@@ -166,5 +166,8 @@ func _update_camera(delta: float) -> void:
 		_camera.offset = Vector2.ZERO
 
 func request_shake(strength: float) -> void:
-	_camera_shake_time = 0.35
-	_camera_shake_strength = strength
+	# Don't let a weaker shake overwrite a stronger one that's still ringing.
+	var current_effective: float = _camera_shake_strength * max(_camera_shake_time / 0.35, 0.0)
+	if strength >= current_effective:
+		_camera_shake_strength = strength
+		_camera_shake_time = 0.35
