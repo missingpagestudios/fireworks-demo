@@ -473,11 +473,11 @@ func _spawn_distant_meteor() -> void:
 		"trail_len": 0,
 		"halo": 2.0,
 		"fade": "atmosphere",
-		"emit_rate": 16.0,
+		"emit_rate": 12.0,
 		"emit_color": emit_col,
-		"emit_size": 1.6,
-		"emit_life": 2.2,
-		"emit_drift": 18.0,
+		"emit_size": 1.7,
+		"emit_life": 11.0,    # long life so trail spans ~75-125 px
+		"emit_drift": 4.0,
 		"emit_halo": 1.0,
 	})
 	spawn(Vector2(start_x, start_y), v, {
@@ -489,11 +489,11 @@ func _spawn_distant_meteor() -> void:
 		"trail_len": 0,
 		"halo": 1.1,
 		"fade": "atmosphere",
-		"emit_rate": 10.0,
+		"emit_rate": 8.0,
 		"emit_color": Color(1.0, 0.92, 0.75),
-		"emit_size": 1.0,
-		"emit_life": 1.4,
-		"emit_drift": 10.0,
+		"emit_size": 1.1,
+		"emit_life": 8.0,
+		"emit_drift": 2.5,
 		"emit_halo": 0.7,
 	})
 
@@ -917,7 +917,12 @@ func _process_particles(delta: float) -> void:
 					var n: Vector2 = v_vec / v_len
 					perp = Vector2(-n.y, n.x)
 				var drift: float = p.emit_drift
-				var trail_v: Vector2 = perp * rng.randf_range(-drift, drift) - v_vec * rng.randf_range(0.02, 0.10)
+				# Give trail particles a reverse component so they fall
+				# visibly behind the head over time. Factor 0.6-1.2 means
+				# they move backward at 60-120% of meteor speed relative
+				# to the meteor — tail length ≈ meteor_speed * (1+factor) * life.
+				var back_factor: float = rng.randf_range(0.6, 1.2)
+				var trail_v: Vector2 = perp * rng.randf_range(-drift, drift) - v_vec * back_factor
 				spawn(p.pos + perp * rng.randf_range(-2.0, 2.0), trail_v, {
 					"color": p.emit_color,
 					"size": p.emit_size * rng.randf_range(0.7, 1.2),
