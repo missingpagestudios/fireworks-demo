@@ -613,11 +613,12 @@ func _strike_meteor_impact(impact_pos: Vector2) -> void:
 		_schedule(0.18 + i * 0.14, heavy_after.bind(s))
 
 func _apoc_white_flash() -> void:
-	# Full white screen flash that holds 1.0s then fades over 1.5s.
-	# The fade-to-black overlay is scheduled separately to take over
-	# as the white fades, so the screen smoothly transitions white -> black.
+	# Full white screen flash that holds for the remainder of the show —
+	# keeps alpha at 1.0 so there's no gap for the background scene to
+	# show through. The fade-to-black overlay rises ON TOP of the white,
+	# producing a clean white -> black transition with no bleedthrough.
 	if host_ref != null and host_ref.has_method("start_screen_flash"):
-		host_ref.start_screen_flash(1.0, 1.5, Color(1, 1, 1), 1.0)
+		host_ref.start_screen_flash(1.0, 0.1, Color(1, 1, 1), 10.0)
 
 func _apoc_phase_initial(impact_pos: Vector2) -> void:
 	# Full-screen white flash overlay (the actual 'screen blew up' moment)
