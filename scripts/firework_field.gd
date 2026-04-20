@@ -18,6 +18,8 @@ var smoke_particles: Array = []    # normal blend (smoke / snake)
 var rng := RandomNumberGenerator.new()
 var spark_tex: Texture2D
 var _smoke_layer: SmokeLayer
+var _mm_instance: MultiMeshInstance2D
+var _mm: MultiMesh
 
 # Endless-ramp state (used by _launch_endless / _process_endless)
 var endless_active := false
@@ -37,8 +39,10 @@ var _perf_next_sample := 0.0
 var _perf_sample_interval := 0.5
 var _perf_sim_usec := 0   # cumulative for current sample window
 var _perf_draw_usec := 0
+var _perf_mm_usec := 0
 var _perf_sim_frames := 0
 var _perf_draw_frames := 0
+var _perf_mm_frames := 0
 # Aggregates across the whole test
 var _perf_peak_sparks := 0
 var _perf_peak_smoke := 0
@@ -55,10 +59,29 @@ var _perf_first_below_30 := -1.0
 var _perf_first_below_30_total := 0
 
 func _ready() -> void:
+	# Trails are drawn via _draw on this node — needs additive blend.
 	var mat := CanvasItemMaterial.new()
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	self.material = mat
 	spark_tex = _build_spark_texture()
+
+	# MultiMeshInstance2D for per-particle sparks — one GPU draw call for all.
+	_mm = MultiMesh.new()
+	_mm.transform_format = MultiMesh.TRANSFORM_2D
+	_mm.use_colors = true
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1, 1)
+	_mm.mesh = quad
+	_mm.instance_count = MAX_PARTICLES
+	_mm.visible_instance_count = 0
+	_mm_instance = MultiMeshInstance2D.new()
+	_mm_instance.multimesh = _mm
+	_mm_instance.texture = spark_tex
+	var mm_mat := CanvasItemMaterial.new()
+	mm_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	_mm_instance.material = mm_mat
+	add_child(_mm_instance)
+
 	_smoke_layer = SmokeLayer.new()
 	_smoke_layer.field = self
 	_smoke_layer.z_index = -1
@@ -319,9 +342,47 @@ func _process(delta: float) -> void:
 	_process_smoke(delta)
 	_perf_sim_usec += Time.get_ticks_usec() - sim_t0
 	_perf_sim_frames += 1
+	var mm_t0 := Time.get_ticks_usec()
+	_populate_multimesh()
+	_perf_mm_usec += Time.get_ticks_usec() - mm_t0
+	_perf_mm_frames += 1
 	queue_redraw()
 	if perf_active:
 		_perf_sample(delta)
+
+func _populate_multimesh() -> void:
+	var n: int = particles.size()
+	_mm.visible_instance_count = n
+	for i in n:
+		var p: Dictionary = particles[i]
+		var life_t: float = clamp(p.life / p.life_max, 0.0, 1.0)
+		var alpha: float = 1.0
+		match p.fade:
+			"linear":
+				alpha = life_t
+			"ease":
+				alpha = life_t * life_t
+			"none":
+				alpha = 1.0
+			"flicker":
+				alpha = life_t * (0.55 + 0.45 * sin((p.life_max - p.life) * 28.0 + p.flicker_seed))
+			"strobe":
+				alpha = life_t * (1.0 if (sin(p.strobe_t * p.strobe_rate) > 0.0) else 0.12)
+			"shimmer":
+				alpha = life_t * (0.4 + 0.6 * sin((p.life_max - p.life) * 45.0 + p.flicker_seed))
+			_:
+				alpha = life_t
+		var c: Color = p.color
+		var radius: float = p.size * 3.4 * p.halo
+		var d: float = radius * 2.0
+		var t: Transform2D = Transform2D(Vector2(d, 0), Vector2(0, d), p.pos)
+		_mm.set_instance_transform_2d(i, t)
+		_mm.set_instance_color(i, Color(
+			min(c.r + 0.25, 1.0),
+			min(c.g + 0.25, 1.0),
+			min(c.b + 0.25, 1.0),
+			alpha
+		))
 
 func _process_endless(delta: float) -> void:
 	if not endless_active:
@@ -356,8 +417,10 @@ func start_perf_log(test_label: String) -> void:
 	_perf_next_sample = 0.0
 	_perf_sim_usec = 0
 	_perf_draw_usec = 0
+	_perf_mm_usec = 0
 	_perf_sim_frames = 0
 	_perf_draw_frames = 0
+	_perf_mm_frames = 0
 	_perf_peak_sparks = 0
 	_perf_peak_smoke = 0
 	_perf_peak_total = 0
@@ -373,7 +436,7 @@ func start_perf_log(test_label: String) -> void:
 	_perf_first_below_30_total = 0
 	print("")
 	print("=== STRESS TEST: %s ===" % _perf_label_text)
-	print("t       fps  sparks  smoke  sched  sim_us  draw_us")
+	print("t       fps  sparks  smoke  sched  sim_us  mm_us  draw_us")
 
 func stop_perf_log() -> void:
 	if not perf_active:
@@ -430,17 +493,22 @@ func _perf_sample(delta: float) -> void:
 		_perf_next_sample = _perf_sample_interval
 		var sim_us: int = 0
 		var draw_us: int = 0
+		var mm_us: int = 0
 		if _perf_sim_frames > 0:
 			sim_us = _perf_sim_usec / _perf_sim_frames
 		if _perf_draw_frames > 0:
 			draw_us = _perf_draw_usec / _perf_draw_frames
-		print("%5.1fs  %3d  %5d   %4d   %4d   %5d   %5d" % [
-			_perf_t, int(fps), sparks, smoke, _scheduled.size(), sim_us, draw_us
+		if _perf_mm_frames > 0:
+			mm_us = _perf_mm_usec / _perf_mm_frames
+		print("%5.1fs  %3d  %5d   %4d   %4d   %5d  %5d   %5d" % [
+			_perf_t, int(fps), sparks, smoke, _scheduled.size(), sim_us, mm_us, draw_us
 		])
 		_perf_sim_usec = 0
 		_perf_draw_usec = 0
+		_perf_mm_usec = 0
 		_perf_sim_frames = 0
 		_perf_draw_frames = 0
+		_perf_mm_frames = 0
 
 func _process_smoke(delta: float) -> void:
 	var i := smoke_particles.size() - 1
@@ -572,52 +640,25 @@ func _process_particles(delta: float) -> void:
 # --- Drawing ------------------------------------------------------------
 
 func _draw() -> void:
+	# Spark bodies are drawn via the MultiMeshInstance2D child. _draw here
+	# only handles trails (mortars + a small fraction of effects) — that's
+	# typically <100 particles even under heavy load.
 	var t0 := Time.get_ticks_usec()
 	for p in particles:
-		_draw_particle(p)
-	_perf_draw_usec += Time.get_ticks_usec() - t0
-	_perf_draw_frames += 1
-
-func _draw_particle(p: Dictionary) -> void:
-	var life_t: float = clamp(p.life / p.life_max, 0.0, 1.0)
-	var alpha: float = 1.0
-	var fade: String = p.fade
-
-	match fade:
-		"linear":
-			alpha = life_t
-		"ease":
-			alpha = life_t * life_t
-		"none":
-			alpha = 1.0
-		"flicker":
-			alpha = life_t * (0.55 + 0.45 * sin((p.life_max - p.life) * 28.0 + p.flicker_seed))
-		"strobe":
-			alpha = life_t * (1.0 if (sin(p.strobe_t * p.strobe_rate) > 0.0) else 0.12)
-		"shimmer":
-			alpha = life_t * (0.4 + 0.6 * sin((p.life_max - p.life) * 45.0 + p.flicker_seed))
-		_:
-			alpha = life_t
-
-	if alpha <= 0.001:
-		return
-
-	# Trail — single batched draw_polyline call.
-	if p.trail.size() > 1:
+		if p.trail.size() <= 1:
+			continue
+		var life_t: float = clamp(p.life / p.life_max, 0.0, 1.0)
+		var alpha: float = life_t
+		match p.fade:
+			"ease": alpha = life_t * life_t
+			"none": alpha = 1.0
+			"flicker": alpha = life_t * (0.55 + 0.45 * sin((p.life_max - p.life) * 28.0 + p.flicker_seed))
+			"strobe": alpha = life_t * (1.0 if (sin(p.strobe_t * p.strobe_rate) > 0.0) else 0.12)
+			"shimmer": alpha = life_t * (0.4 + 0.6 * sin((p.life_max - p.life) * 45.0 + p.flicker_seed))
+		if alpha <= 0.01:
+			continue
 		var tc: Color = p.trail_color
 		var trail_color := Color(tc.r, tc.g, tc.b, tc.a * alpha * 0.9)
 		draw_polyline(PackedVector2Array(p.trail), trail_color, max(p.size * 0.55, 0.9), false)
-
-	# Spark sprite — single draw call replaces halo + glow + core.
-	var c: Color = p.color
-	var radius: float = p.size * 3.4 * p.halo
-	var d: float = radius * 2.0
-	var rect := Rect2(p.pos.x - radius, p.pos.y - radius, d, d)
-	# Brighten core by adding white bias (capped at 1.0 in additive)
-	var draw_color := Color(
-		min(c.r + 0.25, 1.0),
-		min(c.g + 0.25, 1.0),
-		min(c.b + 0.25, 1.0),
-		alpha
-	)
-	draw_texture_rect(spark_tex, rect, false, draw_color)
+	_perf_draw_usec += Time.get_ticks_usec() - t0
+	_perf_draw_frames += 1
