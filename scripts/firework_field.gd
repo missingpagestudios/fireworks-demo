@@ -20,6 +20,8 @@ var spark_tex: Texture2D
 var _smoke_layer: SmokeLayer
 var _mm_instance: MultiMeshInstance2D
 var _mm: MultiMesh
+var _mm_buffer: PackedFloat32Array      # bulk-upload buffer for sparks
+const MM_STRIDE := 12                    # 8 transform2d + 4 color floats
 
 # Endless-ramp state (used by _launch_endless / _process_endless)
 var endless_active := false
@@ -77,10 +79,14 @@ func _ready() -> void:
 	_mm_instance = MultiMeshInstance2D.new()
 	_mm_instance.multimesh = _mm
 	_mm_instance.texture = spark_tex
+	_mm_instance.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	var mm_mat := CanvasItemMaterial.new()
 	mm_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	_mm_instance.material = mm_mat
 	add_child(_mm_instance)
+	# Preallocate the bulk-upload float buffer once.
+	_mm_buffer = PackedFloat32Array()
+	_mm_buffer.resize(MAX_PARTICLES * MM_STRIDE)
 
 	_smoke_layer = SmokeLayer.new()
 	_smoke_layer.field = self
@@ -351,8 +357,12 @@ func _process(delta: float) -> void:
 		_perf_sample(delta)
 
 func _populate_multimesh() -> void:
+	# Bulk-upload path: write all transforms+colors into _mm_buffer, then
+	# assign mm.buffer once. Faster than per-instance setters.
 	var n: int = particles.size()
-	_mm.visible_instance_count = n
+	if n == 0:
+		_mm.visible_instance_count = 0
+		return
 	for i in n:
 		var p: Dictionary = particles[i]
 		var life_t: float = clamp(p.life / p.life_max, 0.0, 1.0)
@@ -375,14 +385,24 @@ func _populate_multimesh() -> void:
 		var c: Color = p.color
 		var radius: float = p.size * 3.4 * p.halo
 		var d: float = radius * 2.0
-		var t: Transform2D = Transform2D(Vector2(d, 0), Vector2(0, d), p.pos)
-		_mm.set_instance_transform_2d(i, t)
-		_mm.set_instance_color(i, Color(
-			min(c.r + 0.25, 1.0),
-			min(c.g + 0.25, 1.0),
-			min(c.b + 0.25, 1.0),
-			alpha
-		))
+		var idx: int = i * MM_STRIDE
+		# 2D transform packed as two rows of 4 floats (third column is padding)
+		_mm_buffer[idx + 0] = d
+		_mm_buffer[idx + 1] = 0.0
+		_mm_buffer[idx + 2] = 0.0
+		_mm_buffer[idx + 3] = p.pos.x
+		_mm_buffer[idx + 4] = 0.0
+		_mm_buffer[idx + 5] = d
+		_mm_buffer[idx + 6] = 0.0
+		_mm_buffer[idx + 7] = p.pos.y
+		# Per-instance color with brightness boost so the additive sum
+		# reads bright like the prior multi-call path.
+		_mm_buffer[idx + 8]  = min(c.r + 0.35, 1.0)
+		_mm_buffer[idx + 9]  = min(c.g + 0.35, 1.0)
+		_mm_buffer[idx + 10] = min(c.b + 0.35, 1.0)
+		_mm_buffer[idx + 11] = alpha * 1.3
+	_mm.buffer = _mm_buffer
+	_mm.visible_instance_count = n
 
 func _process_endless(delta: float) -> void:
 	if not endless_active:
@@ -640,12 +660,16 @@ func _process_particles(delta: float) -> void:
 # --- Drawing ------------------------------------------------------------
 
 func _draw() -> void:
-	# Spark bodies are drawn via the MultiMeshInstance2D child. _draw here
-	# only handles trails (mortars + a small fraction of effects) — that's
-	# typically <100 particles even under heavy load.
+	# Spark bodies are drawn via MultiMeshInstance2D. Here we batch every
+	# particle trail into a single draw_multiline_colors call — segments
+	# from all particles into one PackedVector2Array.
 	var t0 := Time.get_ticks_usec()
+	var segs := PackedVector2Array()
+	var cols := PackedColorArray()
 	for p in particles:
-		if p.trail.size() <= 1:
+		var trail: Array = p.trail
+		var n: int = trail.size()
+		if n < 2:
 			continue
 		var life_t: float = clamp(p.life / p.life_max, 0.0, 1.0)
 		var alpha: float = life_t
@@ -658,7 +682,16 @@ func _draw() -> void:
 		if alpha <= 0.01:
 			continue
 		var tc: Color = p.trail_color
-		var trail_color := Color(tc.r, tc.g, tc.b, tc.a * alpha * 0.9)
-		draw_polyline(PackedVector2Array(p.trail), trail_color, max(p.size * 0.55, 0.9), false)
+		var base_a: float = tc.a * alpha * 0.9
+		var inv_n: float = 1.0 / float(n - 1)
+		for i in n - 1:
+			segs.append(trail[i])
+			segs.append(trail[i + 1])
+			var fade_a: float = float(i) * inv_n * base_a
+			var seg_col := Color(tc.r, tc.g, tc.b, fade_a)
+			cols.append(seg_col)
+			cols.append(seg_col)
+	if segs.size() > 0:
+		draw_multiline_colors(segs, cols, 1.4)
 	_perf_draw_usec += Time.get_ticks_usec() - t0
 	_perf_draw_frames += 1
