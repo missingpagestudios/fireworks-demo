@@ -89,7 +89,7 @@ static func catalog() -> Array:
 		# --- Stress test ---
 		{"id": 51, "name": "Grand Finale Barrage","category": "Stress Test",   "launch": "barrage", "shots": 50,  "window": 10.0, "color": COL_WHITE, "settle_time": 18.0, "shake": 6.0},
 		{"id": 52, "name": "Heavy Barrage",       "category": "Stress Test",   "launch": "barrage", "shots": 100, "window": 10.0, "color": COL_WHITE, "settle_time": 22.0, "shake": 6.0},
-		{"id": 53, "name": "Inferno",             "category": "Stress Test",   "launch": "barrage", "shots": 200, "window": 8.0,  "color": COL_WHITE, "settle_time": 22.0, "shake": 6.0},
+		{"id": 53, "name": "Inferno",             "category": "Stress Test",   "launch": "barrage", "shots": 100, "window": 8.0,  "color": COL_WHITE, "settle_time": 22.0, "shake": 6.0},
 		{"id": 54, "name": "Endless Ramp",        "category": "Stress Test",   "launch": "endless", "interval": 0.5, "ramp_period": 5.0, "ramp_factor": 0.75, "color": COL_WHITE, "settle_time": 999.0},
 	]
 
