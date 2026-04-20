@@ -910,13 +910,14 @@ func _process_particles(delta: float) -> void:
 			var emit_interval: float = 1.0 / emit_rate
 			while p.emit_t >= emit_interval:
 				p.emit_t -= emit_interval
-				var v_len: float = p.vel.length()
-				var perp := Vector2(0, 0)
+				var v_vec: Vector2 = p.vel
+				var v_len: float = v_vec.length()
+				var perp: Vector2 = Vector2.ZERO
 				if v_len > 0.001:
-					var n := p.vel / v_len
+					var n: Vector2 = v_vec / v_len
 					perp = Vector2(-n.y, n.x)
 				var drift: float = p.emit_drift
-				var trail_v := perp * rng.randf_range(-drift, drift) - p.vel * rng.randf_range(0.02, 0.10)
+				var trail_v: Vector2 = perp * rng.randf_range(-drift, drift) - v_vec * rng.randf_range(0.02, 0.10)
 				spawn(p.pos + perp * rng.randf_range(-2.0, 2.0), trail_v, {
 					"color": p.emit_color,
 					"size": p.emit_size * rng.randf_range(0.7, 1.2),
