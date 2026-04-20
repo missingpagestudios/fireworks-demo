@@ -603,43 +603,45 @@ func _strike_meteor_impact(impact_pos: Vector2) -> void:
 		_schedule(0.15 + i * 0.15, _aftershake)
 
 func _apoc_phase_initial(impact_pos: Vector2) -> void:
-	# 1) Massive screen-filling white flash
+	# Full-screen white flash overlay (the actual 'screen blew up' moment)
+	if host_ref != null and host_ref.has_method("start_screen_flash"):
+		host_ref.start_screen_flash(0.95, 0.6, Color(1.0, 0.97, 0.90))
+	# Bright in-world flash particle for the local intensity at impact
 	spawn(impact_pos + Vector2(0, -60), Vector2.ZERO, {
 		"color": Color(1.0, 0.97, 0.90),
-		"size": 320.0,
+		"size": 360.0,
 		"life": 0.55,
 		"gravity": 0.0, "drag": 0.0,
-		"halo": 6.0, "fade": "ease",
+		"halo": 6.5, "fade": "ease",
 	})
-	# Secondary inner-bright flash
 	spawn(impact_pos + Vector2(0, -40), Vector2.ZERO, {
 		"color": Color(1.0, 0.85, 0.50),
-		"size": 220.0,
-		"life": 0.7,
+		"size": 240.0,
+		"life": 0.8,
 		"gravity": 0.0, "drag": 0.0,
-		"halo": 5.0, "fade": "ease",
+		"halo": 5.5, "fade": "ease",
 	})
-	# 2) Inner ground-burst flame — 200 particles, faster, bigger range
-	for i in 220:
-		var a: float = -PI * 0.5 + rng.randf_range(-0.7, 0.7)
-		var s: float = rng.randf_range(420, 980)
+	# Inner ground-burst flame — bigger spread to reach screen edges
+	for i in 280:
+		var a: float = -PI * 0.5 + rng.randf_range(-0.85, 0.85)
+		var s: float = rng.randf_range(620, 1500)
 		spawn(impact_pos, Vector2(cos(a), sin(a)) * s, {
 			"color": Color(1.0, 0.55, 0.18),
-			"size": 2.8, "life": 2.0,
-			"gravity": 240.0, "drag": 0.25,
+			"size": 3.0, "life": 2.4,
+			"gravity": 240.0, "drag": 0.20,
 			"halo": 1.6, "fade": "flicker",
 			"trail_len": 8,
 			"trail_color": Color(1.0, 0.45, 0.12, 0.75),
 		})
-	# 3) First outer shockwave ring (horizontal-biased)
-	var ring_count := 180
+	# First outer shockwave ring — wider radius
+	var ring_count := 200
 	for i in ring_count:
 		var a: float = TAU * (float(i) / ring_count)
-		var s := 720.0
+		var s := 1100.0
 		spawn(impact_pos, Vector2(cos(a) * s, sin(a) * s * 0.35), {
 			"color": Color(1.0, 0.88, 0.58),
-			"size": 3.0, "life": 1.2,
-			"gravity": 90.0, "drag": 0.18,
+			"size": 3.0, "life": 1.4,
+			"gravity": 90.0, "drag": 0.14,
 			"halo": 1.8, "fade": "ease",
 		})
 
@@ -670,14 +672,17 @@ func _apoc_phase_lateral(impact_pos: Vector2) -> void:
 		})
 
 func _apoc_phase_second_shockwave(impact_pos: Vector2) -> void:
-	var ring_count := 160
+	# Reignition flash — moderate brightness, longer fade
+	if host_ref != null and host_ref.has_method("start_screen_flash"):
+		host_ref.start_screen_flash(0.55, 0.7, Color(1.0, 0.85, 0.55))
+	var ring_count := 180
 	for i in ring_count:
 		var a: float = TAU * (float(i) / ring_count)
-		var s := 920.0
+		var s := 1300.0
 		spawn(impact_pos + Vector2(0, -20), Vector2(cos(a) * s, sin(a) * s * 0.28), {
 			"color": Color(1.0, 0.95, 0.75),
-			"size": 2.4, "life": 1.4,
-			"gravity": 60.0, "drag": 0.16,
+			"size": 2.4, "life": 1.6,
+			"gravity": 60.0, "drag": 0.13,
 			"halo": 1.5, "fade": "ease",
 		})
 	# Additional flame burst on top
@@ -706,14 +711,14 @@ func _apoc_phase_fire_wall(impact_pos: Vector2) -> void:
 			"halo": 1.8, "fade": "flicker",
 		})
 	# Third (and biggest) shockwave ring
-	var ring_count := 140
+	var ring_count := 160
 	for i in ring_count:
 		var a: float = TAU * (float(i) / ring_count)
-		var s := 1100.0
+		var s := 1500.0
 		spawn(impact_pos + Vector2(0, -30), Vector2(cos(a) * s, sin(a) * s * 0.22), {
 			"color": Color(1.0, 0.78, 0.45),
-			"size": 2.0, "life": 1.6,
-			"gravity": 40.0, "drag": 0.14,
+			"size": 2.0, "life": 1.8,
+			"gravity": 40.0, "drag": 0.10,
 			"halo": 1.3, "fade": "ease",
 		})
 

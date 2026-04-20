@@ -16,6 +16,7 @@ const SCREEN := Vector2(1920, 1080)
 @onready var _menu_opt3: Label = Label.new()
 @onready var _menu_hint: Label = Label.new()
 @onready var _fade: ColorRect = ColorRect.new()
+@onready var _flash: ColorRect = ColorRect.new()
 
 var _banner_alpha := 0.0
 var _target_alpha := 0.0
@@ -24,6 +25,8 @@ var _fps_smoothed := 60.0
 var _menu_selected := 0
 var _fade_target := 0.0
 var _fade_speed := 1.0
+var _flash_alpha := 0.0
+var _flash_decay := 1.0
 
 func _ready() -> void:
 	_banner.anchor_left = 0.0
@@ -179,6 +182,16 @@ func _ready() -> void:
 	_fade.z_index = 200
 	add_child(_fade)
 
+	# Screen flash overlay — full-screen white burst on impact
+	_flash.color = Color(1, 1, 1, 0)
+	_flash.anchor_left = 0.0
+	_flash.anchor_right = 1.0
+	_flash.anchor_top = 0.0
+	_flash.anchor_bottom = 1.0
+	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_flash.z_index = 190
+	add_child(_flash)
+
 func show_banner(idx: int, total: int, fw_name: String, category: String) -> void:
 	_num_label.text = "%d / %d" % [idx, total]
 	_name_label.text = fw_name
@@ -195,6 +208,10 @@ func _process(delta: float) -> void:
 	_banner.modulate.a = _banner_alpha
 	# Fade overlay
 	_fade.color.a = move_toward(_fade.color.a, _fade_target, delta * _fade_speed)
+	# Flash overlay — exponential-ish decay
+	if _flash_alpha > 0.0:
+		_flash_alpha = max(0.0, _flash_alpha - delta * _flash_decay)
+		_flash.color.a = _flash_alpha
 	# FPS overlay (smoothed) + particle/smoke counts
 	var fps: float = Engine.get_frames_per_second()
 	_fps_smoothed = lerp(_fps_smoothed, fps, clamp(delta * 4.0, 0.0, 1.0))
@@ -246,3 +263,14 @@ func cancel_fade() -> void:
 	_fade_target = 0.0
 	_fade_speed = 4.0
 	_fade.color.a = 0.0
+	_flash_alpha = 0.0
+	_flash.color.a = 0.0
+
+func start_screen_flash(intensity: float, decay_seconds: float, tint: Color = Color(1, 1, 1)) -> void:
+	# Snap to peak intensity, then decay over `decay_seconds`. Multiple
+	# flashes can stack — we take the max so an in-flight flash isn't
+	# replaced by a smaller one.
+	if intensity > _flash_alpha:
+		_flash_alpha = intensity
+	_flash_decay = 1.0 / max(decay_seconds, 0.05)
+	_flash.color = Color(tint.r, tint.g, tint.b, _flash_alpha)

@@ -29,6 +29,9 @@ func _ready() -> void:
 func start_fade_to_black(duration: float) -> void:
 	_hud.start_fade_to_black(duration)
 
+func start_screen_flash(intensity: float, decay_seconds: float, tint: Color = Color(1, 1, 1)) -> void:
+	_hud.start_screen_flash(intensity, decay_seconds, tint)
+
 func on_show_complete() -> void:
 	# Apocalypse show finished — return to menu (stays on black until cleared)
 	_show_menu()
