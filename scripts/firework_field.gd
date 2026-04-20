@@ -170,6 +170,13 @@ func spawn(pos: Vector2, vel: Vector2, overrides: Dictionary = {}) -> void:
 		"strobe_t": 0.0,
 		"flicker_seed": rng.randf() * 10.0,
 		"streak_length": overrides.get("streak_length", 0.0),
+		"emit_rate": overrides.get("emit_rate", 0.0),       # particles/sec
+		"emit_t": 0.0,
+		"emit_color": overrides.get("emit_color", Color(1, 1, 1)),
+		"emit_size": overrides.get("emit_size", 1.4),
+		"emit_life": overrides.get("emit_life", 1.6),
+		"emit_drift": overrides.get("emit_drift", 35.0),
+		"emit_halo": overrides.get("emit_halo", 1.0),
 		"meta": overrides.get("meta", {}),
 	}
 	particles.append(p)
@@ -454,9 +461,9 @@ func _spawn_distant_meteor() -> void:
 	else:
 		col = Color(1.0, 0.55, 0.28)
 	var head_size: float = rng.randf_range(9.0, 12.0)
-	# Long fixed-length backward streak rather than frame-history trail
-	# (slow movement would make a history-trail nearly invisible).
-	var streak_px: float = rng.randf_range(380.0, 540.0)
+	# Comet-trail emission: head sheds small glowing particles every ~1/14s
+	# that drift perpendicular and fade over ~1.8s. Real comet look.
+	var emit_col := Color(col.r, col.g * 0.78, col.b * 0.55)
 	spawn(Vector2(start_x, start_y), v, {
 		"color": col,
 		"size": head_size,
@@ -464,10 +471,14 @@ func _spawn_distant_meteor() -> void:
 		"gravity": 0.02,
 		"drag": 1.0,
 		"trail_len": 0,
-		"streak_length": streak_px,
-		"trail_color": Color(col.r * 0.95, col.g * 0.65, col.b * 0.35, 0.85),
 		"halo": 2.0,
 		"fade": "atmosphere",
+		"emit_rate": 16.0,
+		"emit_color": emit_col,
+		"emit_size": 1.6,
+		"emit_life": 2.2,
+		"emit_drift": 18.0,
+		"emit_halo": 1.0,
 	})
 	spawn(Vector2(start_x, start_y), v, {
 		"color": Color(1.0, 0.96, 0.88),
@@ -476,10 +487,14 @@ func _spawn_distant_meteor() -> void:
 		"gravity": 0.02,
 		"drag": 1.0,
 		"trail_len": 0,
-		"streak_length": streak_px * 0.65,
-		"trail_color": Color(1.0, 0.85, 0.55, 0.6),
 		"halo": 1.1,
 		"fade": "atmosphere",
+		"emit_rate": 10.0,
+		"emit_color": Color(1.0, 0.92, 0.75),
+		"emit_size": 1.0,
+		"emit_life": 1.4,
+		"emit_drift": 10.0,
+		"emit_halo": 0.7,
 	})
 
 func _strike_meteor_enter(impact_pos: Vector2) -> void:
@@ -886,6 +901,31 @@ func _process_particles(delta: float) -> void:
 		# Strobe timing
 		if p.strobe_rate > 0.0:
 			p.strobe_t += delta
+
+		# Comet-trail emission: shed small glowing particles perpendicular
+		# to the velocity. Used for distant meteors / strike meteor.
+		var emit_rate: float = p.get("emit_rate", 0.0)
+		if emit_rate > 0.0:
+			p.emit_t += delta
+			var emit_interval: float = 1.0 / emit_rate
+			while p.emit_t >= emit_interval:
+				p.emit_t -= emit_interval
+				var v_len: float = p.vel.length()
+				var perp := Vector2(0, 0)
+				if v_len > 0.001:
+					var n := p.vel / v_len
+					perp = Vector2(-n.y, n.x)
+				var drift: float = p.emit_drift
+				var trail_v := perp * rng.randf_range(-drift, drift) - p.vel * rng.randf_range(0.02, 0.10)
+				spawn(p.pos + perp * rng.randf_range(-2.0, 2.0), trail_v, {
+					"color": p.emit_color,
+					"size": p.emit_size * rng.randf_range(0.7, 1.2),
+					"life": p.emit_life * rng.randf_range(0.7, 1.2),
+					"gravity": 1.5,
+					"drag": 0.55,
+					"halo": p.emit_halo,
+					"fade": "ease",
+				})
 
 		# Mortar-specific: detect apex, trigger burst
 		if mode == "mortar":
