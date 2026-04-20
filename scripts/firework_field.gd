@@ -11,13 +11,23 @@ extends Node2D
 
 const DEFAULT_GRAVITY := 180.0
 const DEFAULT_DRAG := 0.35
-const MAX_PARTICLES := 8000
+const MAX_PARTICLES := 30000
 
 var particles: Array = []          # additive (sparks)
 var smoke_particles: Array = []    # normal blend (smoke / snake)
 var rng := RandomNumberGenerator.new()
 var spark_tex: Texture2D
 var _smoke_layer: SmokeLayer
+
+# Endless-ramp state (used by _launch_endless / _process_endless)
+var endless_active := false
+var endless_interval := 0.5
+var endless_ramp_period := 5.0
+var endless_ramp_factor := 0.75
+var endless_next_fire := 0.0
+var endless_next_ramp := 0.0
+var endless_ground := Vector2.ZERO
+var endless_elapsed := 0.0
 
 func _ready() -> void:
 	var mat := CanvasItemMaterial.new()
@@ -66,22 +76,22 @@ func launch(fw: Dictionary, ground_pos: Vector2) -> void:
 			FireworkBursts.burst(fw.id, self, ground_pos + Vector2(0, -20))
 		"barrage":
 			_launch_barrage(fw, ground_pos)
+		"endless":
+			_launch_endless(fw, ground_pos)
 		_:
 			_launch_mortar(fw, ground_pos)
 
 func _launch_barrage(fw: Dictionary, ground_pos: Vector2) -> void:
-	# Stress test: fire 50 random fireworks across 10 seconds, each at a
-	# random X offset and using its own catalog launch behavior.
+	# Configurable stress test. Each barrage tier sets shots + window in the
+	# catalog entry. Skips #11 (cake — already a barrage) and #51-54 (other tiers).
+	var shots: int = fw.get("shots", 50)
+	var window: float = fw.get("window", 10.0)
 	var catalog: Array = FireworkBursts.catalog()
-	# Pool of valid IDs — exclude 51 (this one) and 11 (cake — too long itself)
 	var pool: Array = []
 	for entry in catalog:
 		if entry.id < 51 and entry.id != 11:
 			pool.append(entry)
 	pool.shuffle()
-	# Pick first 50 (with repeats if pool is smaller)
-	var shots := 50
-	var window := 10.0
 	var screen_w := 1920.0
 	var margin := 120.0
 	var fire_one = func(sub_fw: Dictionary, x_pos: float):
@@ -89,9 +99,24 @@ func _launch_barrage(fw: Dictionary, ground_pos: Vector2) -> void:
 		launch(sub_fw, sub_ground)
 	for i in shots:
 		var entry: Dictionary = pool[i % pool.size()]
-		var delay := (float(i) / float(shots - 1)) * window + rng.randf_range(-0.05, 0.05)
+		var delay := (float(i) / float(max(shots - 1, 1))) * window + rng.randf_range(-0.05, 0.05)
 		var x_pos := rng.randf_range(margin, screen_w - margin)
 		_schedule(max(0.0, delay), fire_one.bind(entry, x_pos))
+
+func _launch_endless(fw: Dictionary, ground_pos: Vector2) -> void:
+	# Endless ramp: fires a firework every `interval` sec, ramping the rate
+	# faster every `ramp_period` sec until Space is pressed (which advances
+	# to the next catalog entry, clearing the field).
+	var initial_interval: float = fw.get("interval", 0.5)
+	var ramp_period: float = fw.get("ramp_period", 5.0)
+	var ramp_factor: float = fw.get("ramp_factor", 0.75)
+	endless_active = true
+	endless_interval = initial_interval
+	endless_ramp_period = ramp_period
+	endless_ramp_factor = ramp_factor
+	endless_next_fire = 0.05
+	endless_next_ramp = ramp_period
+	endless_ground = ground_pos
 
 ## Spawn a particle. `overrides` is a Dictionary of field overrides.
 func spawn(pos: Vector2, vel: Vector2, overrides: Dictionary = {}) -> void:
@@ -142,6 +167,7 @@ func clear_all() -> void:
 	particles.clear()
 	smoke_particles.clear()
 	_scheduled.clear()
+	endless_active = false
 
 # --- Launch helpers -----------------------------------------------------
 
@@ -262,9 +288,34 @@ func _custom_pop(cp: Dictionary, pos: Vector2) -> void:
 
 func _process(delta: float) -> void:
 	_process_scheduled(delta)
+	_process_endless(delta)
 	_process_particles(delta)
 	_process_smoke(delta)
 	queue_redraw()
+
+func _process_endless(delta: float) -> void:
+	if not endless_active:
+		return
+	endless_elapsed += delta
+	endless_next_fire -= delta
+	endless_next_ramp -= delta
+	if endless_next_fire <= 0.0:
+		endless_next_fire = endless_interval
+		var catalog := FireworkBursts.catalog()
+		var pool: Array = []
+		for entry in catalog:
+			if entry.id < 51 and entry.id != 11:
+				pool.append(entry)
+		var sub_fw: Dictionary = pool[rng.randi() % pool.size()]
+		var x_pos := rng.randf_range(120.0, 1800.0)
+		launch(sub_fw, Vector2(x_pos, endless_ground.y))
+	if endless_next_ramp <= 0.0:
+		endless_next_ramp = endless_ramp_period
+		endless_interval = max(endless_interval * endless_ramp_factor, 0.05)
+
+func stop_endless() -> void:
+	endless_active = false
+	endless_elapsed = 0.0
 
 func _process_smoke(delta: float) -> void:
 	var i := smoke_particles.size() - 1

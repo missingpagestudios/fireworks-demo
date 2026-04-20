@@ -8,8 +8,19 @@ No assets. Every visual is procedurally drawn via a custom particle engine using
 
 Open `project.godot` in Godot 4.6+ and press F5.
 
+## Modes
+
+A startup menu offers two paths:
+
+1. **Walk through 1-50** — sequenced demo of every firework
+2. **Stress tests 51-54** — Grand Finale Barrage (50 in 10s), Heavy Barrage (100 in 10s), Inferno (200 in 8s), Endless Ramp (auto-escalating until you press Esc)
+
+A live FPS + spark/smoke counter is shown in the top-right.
+
 ## Controls
 
+- `Up/Down + Enter/Space` — pick menu option
+- `Esc` — return to menu
 - `Space` — launch current firework / advance to next
 - `B` — previous firework
 - `R` — replay current firework
