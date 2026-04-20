@@ -792,16 +792,16 @@ static func _drone_swarm(field, pos: Vector2) -> void:
 	var rng = field.rng
 	# Each drone is a small mortar that flies in formation, then bursts into its
 	# own miniature firework. The swarm fans out from a V-formation.
-	var count := 18
+	var count: int = 18
 	var palette = [COL_CYAN, COL_PINK, COL_GREEN, COL_YELLOW, COL_PURPLE, COL_ORANGE]
 	for i in count:
-		var off_i = float(i) - count * 0.5
-		var spread_x := off_i * 60.0
-		var spread_y := -abs(off_i) * 20.0   # V shape
-		var target := pos + Vector2(spread_x, spread_y - rng.randf_range(60, 140))
+		var off_i: float = float(i) - float(count) * 0.5
+		var spread_x: float = off_i * 60.0
+		var spread_y: float = -absf(off_i) * 20.0   # V shape
+		var target: Vector2 = pos + Vector2(spread_x, spread_y - rng.randf_range(60, 140))
 		# Drone trail from center to target over ~0.9s
-		var t_trav := 0.9
-		var v0 := (target - pos) / t_trav
+		var t_trav: float = 0.9
+		var v0: Vector2 = (target - pos) / t_trav
 		var col: Color = palette[i % palette.size()]
 		# Spawn the drone as a colored mortar particle that bursts on death
 		field.particles.append({
