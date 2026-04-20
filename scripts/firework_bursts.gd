@@ -93,7 +93,7 @@ static func catalog() -> Array:
 		{"id": 54, "name": "Endless Ramp",        "category": "Stress Test",   "launch": "endless", "interval": 0.5, "ramp_period": 5.0, "ramp_factor": 0.75, "color": COL_WHITE, "settle_time": 999.0},
 
 		# --- Cinematic ---
-		{"id": 55, "name": "Apocalypse Show",     "category": "Cinematic",     "launch": "show",   "color": COL_WHITE, "settle_time": 64.0, "shake": 0.0},
+		{"id": 55, "name": "Apocalypse Show",     "category": "Cinematic",     "launch": "show",   "color": COL_WHITE, "settle_time": 66.0, "shake": 0.0},
 	]
 
 # --- Dispatch ----------------------------------------------------------

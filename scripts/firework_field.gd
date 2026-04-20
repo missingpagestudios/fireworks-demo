@@ -361,14 +361,11 @@ func _launch_apocalypse_show(_fw: Dictionary, ground_pos: Vector2) -> void:
 	var screen_w := 1920.0
 	var ground_y: float = ground_pos.y
 
-	# --- Distant meteors throughout 0-58s ---
-	# Emit one every ~0.8-1.6s (random). Each is a small bright streak
-	# that crosses from upper area diagonally toward the horizon.
-	var t := 0.5
-	while t < 57.5:
-		var jitter: float = rng.randf_range(-0.3, 0.3)
-		_schedule(t + jitter, _spawn_distant_meteor)
-		t += rng.randf_range(0.85, 1.6)
+	# --- Distant meteors: 5 entering at t=0, persist whole 60s ---
+	# Each lives the full show, very slow descent (~5 px/sec), long
+	# persistent trails. They drift across the upper sky as background.
+	for i in 5:
+		_schedule(0.02 + i * 0.05, _spawn_distant_meteor)
 
 	# --- Curated firework arc ---
 	# Helper to fire a specific catalog id at a screen X
@@ -409,10 +406,10 @@ func _launch_apocalypse_show(_fw: Dictionary, ground_pos: Vector2) -> void:
 	# --- The strike: meteor enters at 57.6s, impacts at 60.0s ---
 	_schedule(57.6, _strike_meteor_enter.bind(Vector2(screen_w * 0.5, ground_y)))
 	_schedule(60.0, _strike_meteor_impact.bind(Vector2(screen_w * 0.5, ground_y - 20)))
-	# Begin fade to black at impact
-	_schedule(60.0, _begin_fade_to_black)
+	# Delay fade start so the multi-phase explosion gets full visual time
+	_schedule(61.8, _begin_fade_to_black)
 	# Return to menu after fade completes + hold
-	_schedule(63.5, _show_complete)
+	_schedule(65.0, _show_complete)
 
 func _catalog_entry(id: int) -> Dictionary:
 	var cat := FireworkBursts.catalog()
@@ -422,161 +419,309 @@ func _catalog_entry(id: int) -> Dictionary:
 	return {}
 
 func _spawn_distant_meteor() -> void:
-	# Distant meteor: small dim head + long fading trail. Trajectory from
-	# upper area diagonally toward the horizon. Render via the additive
-	# layer so it glows like a real distant streak.
+	# One of the 5 persistent background meteors. Lives the full 60s,
+	# very slow descent (~5 px/sec down), small and dim — way off in the
+	# atmosphere. Long trail shows the streak across the sky.
 	var screen_w := 1920.0
-	var skyline_y := 880.0  # approximate horizon line
 	var from_left := rng.randf() < 0.5
 	var start_x: float
-	var end_x: float
 	if from_left:
-		start_x = rng.randf_range(-50.0, screen_w * 0.4)
-		end_x = start_x + rng.randf_range(220.0, 480.0)
+		start_x = rng.randf_range(-50.0, screen_w * 0.45)
 	else:
-		start_x = rng.randf_range(screen_w * 0.6, screen_w + 50.0)
-		end_x = start_x - rng.randf_range(220.0, 480.0)
-	var start_y: float = rng.randf_range(60.0, 320.0)
-	var end_y: float = rng.randf_range(skyline_y - 240.0, skyline_y - 40.0)
-	var travel_time: float = rng.randf_range(2.4, 3.8)
-	var v: Vector2 = (Vector2(end_x, end_y) - Vector2(start_x, start_y)) / travel_time
-	# Color: warm white -> warm orange/red mix
+		start_x = rng.randf_range(screen_w * 0.55, screen_w + 50.0)
+	var start_y: float = rng.randf_range(20.0, 200.0)
+	# Velocity: slight horizontal drift + slow downward
+	var vx: float = rng.randf_range(8.0, 18.0) * (1.0 if from_left else -1.0)
+	var vy: float = rng.randf_range(4.0, 7.0)   # very slow descent
+	var v := Vector2(vx, vy)
+	var life: float = 60.0
 	var hue_pick := rng.randf()
 	var col: Color
 	if hue_pick < 0.55:
-		col = Color(1.0, 0.92, 0.78)
+		col = Color(1.0, 0.90, 0.72)
 	elif hue_pick < 0.85:
-		col = Color(1.0, 0.78, 0.45)
+		col = Color(1.0, 0.75, 0.40)
 	else:
-		col = Color(1.0, 0.55, 0.32)
+		col = Color(1.0, 0.55, 0.28)
+	var head_size: float = rng.randf_range(1.8, 2.6)
 	spawn(Vector2(start_x, start_y), v, {
 		"color": col,
-		"size": rng.randf_range(0.9, 1.4),
-		"life": travel_time,
-		"gravity": 6.0,
-		"drag": 0.95,
-		"trail_len": rng.randi_range(20, 32),
-		"trail_color": Color(col.r * 0.9, col.g * 0.7, col.b * 0.5, 0.55),
-		"halo": 0.55,   # smaller halo => looks distant
-		"fade": "ease",
+		"size": head_size,
+		"life": life,
+		"gravity": 0.05,
+		"drag": 1.0,
+		"trail_len": rng.randi_range(120, 160),
+		"trail_color": Color(col.r * 0.95, col.g * 0.65, col.b * 0.35, 0.7),
+		"halo": 0.85,
+		"fade": "none",
+	})
+	# Inner-bright companion for thicker glowing head
+	spawn(Vector2(start_x, start_y), v, {
+		"color": Color(1.0, 0.96, 0.88),
+		"size": head_size * 0.55,
+		"life": life,
+		"gravity": 0.05,
+		"drag": 1.0,
+		"trail_len": rng.randi_range(60, 90),
+		"trail_color": Color(1.0, 0.85, 0.55, 0.45),
+		"halo": 0.55,
+		"fade": "none",
 	})
 
 func _strike_meteor_enter(impact_pos: Vector2) -> void:
-	# Single huge meteor entering from upper area, fast trajectory toward
-	# the impact point. Travel time 2.4s so it lands at the scheduled impact.
+	# Massive incoming meteor — 4 stacked particles for thickness, big halo,
+	# very long trail. Travel time 2.4s so it lands at the scheduled impact.
 	var travel_time := 2.4
-	var start := Vector2(impact_pos.x + 380.0, -120.0)
+	var start := Vector2(impact_pos.x + 480.0, -180.0)
 	var v := (impact_pos - start) / travel_time
-	# Two tightly-overlapping particles for a thicker trail
-	for k in 2:
-		var size := 4.6 if k == 0 else 3.1
-		spawn(start + Vector2(k * 4.0, k * 2.0), v + Vector2(rng.randf_range(-4, 4), rng.randf_range(-4, 4)), {
-			"color": Color(1.0, 0.55, 0.18),
-			"size": size,
-			"life": travel_time + 0.05,
-			"gravity": 12.0,
-			"drag": 0.99,
-			"trail_len": 56,
-			"trail_color": Color(1.0, 0.42, 0.12, 0.85),
-			"halo": 1.6,
-			"fade": "none",
-		})
-	# Streaming embers shed from the meteor every 0.04s
+	# Outer reddish corona
+	spawn(start, v, {
+		"color": Color(1.0, 0.42, 0.14),
+		"size": 14.0,
+		"life": travel_time + 0.05,
+		"gravity": 8.0, "drag": 0.995,
+		"trail_len": 80,
+		"trail_color": Color(1.0, 0.38, 0.10, 0.85),
+		"halo": 2.6,
+		"fade": "none",
+	})
+	# Mid orange body
+	spawn(start + Vector2(2, 1), v + Vector2(rng.randf_range(-2, 2), rng.randf_range(-2, 2)), {
+		"color": Color(1.0, 0.62, 0.22),
+		"size": 11.0,
+		"life": travel_time + 0.05,
+		"gravity": 8.0, "drag": 0.995,
+		"trail_len": 72,
+		"trail_color": Color(1.0, 0.50, 0.16, 0.9),
+		"halo": 2.0,
+		"fade": "none",
+	})
+	# Inner bright core
+	spawn(start + Vector2(-1, 0), v, {
+		"color": Color(1.0, 0.85, 0.55),
+		"size": 7.5,
+		"life": travel_time + 0.05,
+		"gravity": 8.0, "drag": 0.995,
+		"trail_len": 56,
+		"trail_color": Color(1.0, 0.78, 0.42, 0.8),
+		"halo": 1.5,
+		"fade": "none",
+	})
+	# Hot white pinpoint
+	spawn(start, v, {
+		"color": Color(1.0, 0.98, 0.92),
+		"size": 4.0,
+		"life": travel_time + 0.05,
+		"gravity": 8.0, "drag": 0.995,
+		"trail_len": 36,
+		"trail_color": Color(1.0, 0.95, 0.80, 0.7),
+		"halo": 1.0,
+		"fade": "none",
+	})
+	# Heavy streaming embers shed from the meteor every 0.03s
 	var emit_ember = func():
-		var t_now := Time.get_ticks_usec()
-		_strike_ember(start, v, t_now)
-	for i in 60:
-		_schedule(i * 0.04, emit_ember)
+		_strike_ember(start, v, 0)
+	for i in 80:
+		_schedule(i * 0.03, emit_ember)
 
 func _strike_ember(_start: Vector2, _v: Vector2, _t: int) -> void:
-	# Helper called repeatedly during meteor descent — emits ember at
-	# the meteor's current rough position. We approximate by reading the
-	# longest-trail meteor particle position.
-	# Find a particle with mode "spark" and large halo near the strike trajectory.
+	# Heavy embers shed from the strike meteor's current position. We find
+	# the meteor by scanning for the largest active particle.
 	var pos: Vector2 = Vector2.ZERO
 	var found := false
+	var best_size: float = 0.0
 	for p in particles:
-		if p.halo >= 1.5 and p.size >= 3.0:
+		if p.halo >= 2.0 and p.size > best_size:
 			pos = p.pos
+			best_size = p.size
 			found = true
-			break
 	if not found:
 		return
-	for k in 2:
+	for k in 5:
 		var a := rng.randf() * TAU
-		var s := rng.randf_range(40, 110)
-		spawn(pos + Vector2(rng.randf_range(-6, 6), rng.randf_range(-6, 6)),
+		var s := rng.randf_range(60, 180)
+		spawn(pos + Vector2(rng.randf_range(-10, 10), rng.randf_range(-10, 10)),
 			Vector2(cos(a), sin(a)) * s, {
-			"color": Color(1.0, 0.65, 0.2),
-			"size": 1.1,
-			"life": 0.7,
-			"gravity": 90.0,
+			"color": Color(1.0, 0.62, 0.18),
+			"size": 1.6,
+			"life": 0.9,
+			"gravity": 110.0,
 			"drag": 0.35,
-			"trail_len": 4,
-			"trail_color": Color(1.0, 0.5, 0.18, 0.6),
-			"halo": 0.7,
+			"trail_len": 7,
+			"trail_color": Color(1.0, 0.48, 0.15, 0.7),
+			"halo": 0.85,
 			"fade": "flicker",
 		})
 
 func _strike_meteor_impact(impact_pos: Vector2) -> void:
-	# Massive flash + shockwave + debris + smoke. This is the climax.
-	# 1) Screen-filling white flash particle (very large, very short life)
+	# APOCALYPSE — multi-phase explosion sequence over ~2.5 seconds.
+	# Phase 0 (t+0.0s): Initial blast — massive flash + first shockwave + main debris
+	_apoc_phase_initial(impact_pos)
+	# Phase 1 (t+0.3s): Secondary lateral blasts along the horizon
+	_schedule(0.30, _apoc_phase_lateral.bind(impact_pos))
+	# Phase 2 (t+0.6s): Second shockwave ring + more flame
+	_schedule(0.60, _apoc_phase_second_shockwave.bind(impact_pos))
+	# Phase 3 (t+1.0s): Third shockwave + roiling fire wall along ground
+	_schedule(1.00, _apoc_phase_fire_wall.bind(impact_pos))
+	# Phase 4 (t+1.4s): Massive rising smoke column
+	_schedule(1.40, _apoc_phase_smoke_column.bind(impact_pos))
+	# Phase 5 (t+1.8s): Final burst of upward debris and embers
+	_schedule(1.80, _apoc_phase_final_loft.bind(impact_pos))
+	# Camera shake: huge initial + sustained aftershakes
+	if host_ref != null and host_ref.has_method("request_shake"):
+		host_ref.request_shake(60.0)
+	for i in 12:
+		_schedule(0.15 + i * 0.15, _aftershake)
+
+func _apoc_phase_initial(impact_pos: Vector2) -> void:
+	# 1) Massive screen-filling white flash
+	spawn(impact_pos + Vector2(0, -60), Vector2.ZERO, {
+		"color": Color(1.0, 0.97, 0.90),
+		"size": 320.0,
+		"life": 0.55,
+		"gravity": 0.0, "drag": 0.0,
+		"halo": 6.0, "fade": "ease",
+	})
+	# Secondary inner-bright flash
 	spawn(impact_pos + Vector2(0, -40), Vector2.ZERO, {
-		"color": Color(1.0, 0.95, 0.85),
+		"color": Color(1.0, 0.85, 0.50),
 		"size": 220.0,
-		"life": 0.45,
+		"life": 0.7,
 		"gravity": 0.0, "drag": 0.0,
 		"halo": 5.0, "fade": "ease",
 	})
-	# 2) Inner ground-burst flame
-	for i in 80:
-		var a: float = -PI * 0.5 + rng.randf_range(-0.55, 0.55)
-		var s: float = rng.randf_range(360, 760)
+	# 2) Inner ground-burst flame — 200 particles, faster, bigger range
+	for i in 220:
+		var a: float = -PI * 0.5 + rng.randf_range(-0.7, 0.7)
+		var s: float = rng.randf_range(420, 980)
 		spawn(impact_pos, Vector2(cos(a), sin(a)) * s, {
 			"color": Color(1.0, 0.55, 0.18),
-			"size": 2.4, "life": 1.6,
-			"gravity": 220.0, "drag": 0.30,
-			"halo": 1.4, "fade": "flicker",
-			"trail_len": 6,
-			"trail_color": Color(1.0, 0.45, 0.15, 0.7),
+			"size": 2.8, "life": 2.0,
+			"gravity": 240.0, "drag": 0.25,
+			"halo": 1.6, "fade": "flicker",
+			"trail_len": 8,
+			"trail_color": Color(1.0, 0.45, 0.12, 0.75),
 		})
-	# 3) Outer shockwave ring (horizontal-biased)
-	var ring_count := 110
+	# 3) First outer shockwave ring (horizontal-biased)
+	var ring_count := 180
 	for i in ring_count:
 		var a: float = TAU * (float(i) / ring_count)
-		var s := 540.0
-		spawn(impact_pos, Vector2(cos(a) * s, sin(a) * s * 0.4), {
+		var s := 720.0
+		spawn(impact_pos, Vector2(cos(a) * s, sin(a) * s * 0.35), {
+			"color": Color(1.0, 0.88, 0.58),
+			"size": 3.0, "life": 1.2,
+			"gravity": 90.0, "drag": 0.18,
+			"halo": 1.8, "fade": "ease",
+		})
+
+func _apoc_phase_lateral(impact_pos: Vector2) -> void:
+	# Secondary bursts along the horizon — earth's surface rupturing
+	var screen_w := 1920.0
+	for k in 6:
+		var off_x: float = lerp(-screen_w * 0.45, screen_w * 0.45, float(k) / 5.0)
+		var burst_pos := Vector2(impact_pos.x + off_x, impact_pos.y - 10)
+		# Each lateral burst
+		for i in 35:
+			var a: float = -PI * 0.5 + rng.randf_range(-0.55, 0.55)
+			var s: float = rng.randf_range(220, 560)
+			spawn(burst_pos, Vector2(cos(a), sin(a)) * s, {
+				"color": Color(1.0, 0.50, 0.14),
+				"size": 2.2, "life": 1.6,
+				"gravity": 220.0, "drag": 0.28,
+				"halo": 1.3, "fade": "flicker",
+				"trail_len": 5,
+				"trail_color": Color(1.0, 0.42, 0.12, 0.65),
+			})
+		# Small flash per burst
+		spawn(burst_pos, Vector2.ZERO, {
 			"color": Color(1.0, 0.85, 0.55),
-			"size": 2.6, "life": 1.0,
-			"gravity": 80.0, "drag": 0.18,
-			"halo": 1.6, "fade": "ease",
+			"size": 80.0, "life": 0.3,
+			"gravity": 0.0, "drag": 0.0,
+			"halo": 3.0, "fade": "ease",
 		})
-	# 4) Debris rocks lofted high
-	for i in 35:
-		var a: float = -PI * 0.5 + rng.randf_range(-0.7, 0.7)
-		var s: float = rng.randf_range(320, 620)
-		spawn(impact_pos, Vector2(cos(a), sin(a)) * s, {
-			"color": Color(0.9, 0.55, 0.25),
-			"size": 1.8, "life": 2.4,
-			"gravity": 320.0, "drag": 0.15,
-			"trail_len": 8, "halo": 0.9, "fade": "flicker",
-			"trail_color": Color(1.0, 0.5, 0.2, 0.65),
+
+func _apoc_phase_second_shockwave(impact_pos: Vector2) -> void:
+	var ring_count := 160
+	for i in ring_count:
+		var a: float = TAU * (float(i) / ring_count)
+		var s := 920.0
+		spawn(impact_pos + Vector2(0, -20), Vector2(cos(a) * s, sin(a) * s * 0.28), {
+			"color": Color(1.0, 0.95, 0.75),
+			"size": 2.4, "life": 1.4,
+			"gravity": 60.0, "drag": 0.16,
+			"halo": 1.5, "fade": "ease",
 		})
-	# 5) Massive smoke plume on the smoke layer
-	for k in 40:
+	# Additional flame burst on top
+	for i in 80:
+		var a: float = -PI * 0.5 + rng.randf_range(-0.6, 0.6)
+		var s: float = rng.randf_range(180, 480)
+		spawn(impact_pos + Vector2(0, -20), Vector2(cos(a), sin(a)) * s, {
+			"color": Color(1.0, 0.62, 0.22),
+			"size": 2.4, "life": 1.8,
+			"gravity": 180.0, "drag": 0.30,
+			"halo": 1.4, "fade": "flicker",
+		})
+
+func _apoc_phase_fire_wall(impact_pos: Vector2) -> void:
+	# Roiling sustained fire wall along the bottom — wide, long-lived
+	var screen_w := 1920.0
+	for k in 70:
+		var x_off: float = lerp(-screen_w * 0.55, screen_w * 0.55, float(k) / 69.0)
+		x_off += rng.randf_range(-15, 15)
+		var pos := Vector2(impact_pos.x + x_off, impact_pos.y + rng.randf_range(-6, 18))
+		var v := Vector2(rng.randf_range(-30, 30), rng.randf_range(-220, -80))
+		spawn(pos, v, {
+			"color": Color(1.0, 0.48, 0.18),
+			"size": 4.0, "life": 2.4,
+			"gravity": 30.0, "drag": 0.35,
+			"halo": 1.8, "fade": "flicker",
+		})
+	# Third (and biggest) shockwave ring
+	var ring_count := 140
+	for i in ring_count:
+		var a: float = TAU * (float(i) / ring_count)
+		var s := 1100.0
+		spawn(impact_pos + Vector2(0, -30), Vector2(cos(a) * s, sin(a) * s * 0.22), {
+			"color": Color(1.0, 0.78, 0.45),
+			"size": 2.0, "life": 1.6,
+			"gravity": 40.0, "drag": 0.14,
+			"halo": 1.3, "fade": "ease",
+		})
+
+func _apoc_phase_smoke_column(impact_pos: Vector2) -> void:
+	# Massive rising smoke column on the non-additive layer — fills sky
+	for k in 90:
 		var a: float = rng.randf() * TAU
-		var s: float = rng.randf_range(40, 220)
-		spawn_smoke(impact_pos, Vector2(cos(a), sin(a) * 0.8) * s, {
-			"color": Color(0.35, 0.30, 0.28),
-			"size": 28.0, "life": 5.0,
-			"gravity": -22.0, "drag": 0.4,
-			"alpha_max": 0.85, "size_growth": 32.0,
+		var s: float = rng.randf_range(60, 320)
+		spawn_smoke(impact_pos + Vector2(rng.randf_range(-60, 60), rng.randf_range(-10, 30)),
+			Vector2(cos(a) * 0.6, sin(a) * 0.4 - 1.0).normalized() * s, {
+			"color": Color(0.32, 0.27, 0.25),
+			"size": 38.0, "life": 6.0,
+			"gravity": -32.0, "drag": 0.42,
+			"alpha_max": 0.92, "size_growth": 44.0,
 		})
-	# 6) Camera shake — heavy, sustained-ish via repeated scheduled bumps
-	if host_ref != null and host_ref.has_method("request_shake"):
-		host_ref.request_shake(40.0)
-	for i in 6:
-		_schedule(i * 0.18, _aftershake)
+	# Inner darker smoke pulses
+	for k in 30:
+		var a: float = rng.randf() * TAU
+		spawn_smoke(impact_pos, Vector2(cos(a) * 60.0, -100.0 + rng.randf_range(-30, 30)), {
+			"color": Color(0.18, 0.15, 0.14),
+			"size": 56.0, "life": 5.0,
+			"gravity": -40.0, "drag": 0.5,
+			"alpha_max": 0.95, "size_growth": 56.0,
+		})
+
+func _apoc_phase_final_loft(impact_pos: Vector2) -> void:
+	# Final burst — large debris arcing high, embers everywhere
+	for i in 60:
+		var a: float = -PI * 0.5 + rng.randf_range(-0.85, 0.85)
+		var s: float = rng.randf_range(420, 820)
+		spawn(impact_pos, Vector2(cos(a), sin(a)) * s, {
+			"color": Color(0.95, 0.55, 0.22),
+			"size": 2.4, "life": 2.6,
+			"gravity": 320.0, "drag": 0.12,
+			"trail_len": 12, "halo": 1.1, "fade": "flicker",
+			"trail_color": Color(1.0, 0.50, 0.18, 0.7),
+		})
 
 func _aftershake() -> void:
 	if host_ref != null and host_ref.has_method("request_shake"):
