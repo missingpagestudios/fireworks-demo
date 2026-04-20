@@ -197,7 +197,7 @@ static func _roman_candle(field, pos: Vector2) -> void:
 		field.particles.append({
 			"pos": start, "vel": Vector2(rng.randf_range(-20, 20), v_y),
 			"color": col, "size": 1.8, "life": t_apex + 0.05, "life_max": t_apex + 0.05,
-			"gravity": g, "drag": 0.9, "fade": "none",
+			"gravity": g, "drag": 1.0, "fade": "none",
 			"trail_len": 10, "trail": [],
 			"trail_color": Color(col.r, col.g, col.b, 0.7),
 			"halo": 1.1, "mode": "mortar",

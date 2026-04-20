@@ -88,7 +88,7 @@ func _launch_mortar(fw: Dictionary, ground_pos: Vector2) -> void:
 		"life": t_apex + hang + 0.05,
 		"life_max": t_apex + hang + 0.05,
 		"gravity": g,
-		"drag": 0.9,
+		"drag": 1.0,
 		"fade": "none",
 		"trail_len": 14,
 		"trail": [],
@@ -141,7 +141,7 @@ func _launch_mortar_to(fw: Dictionary, start: Vector2, apex: Vector2) -> void:
 		"life": t_apex + fw.get("hang", 0.08) + 0.05,
 		"life_max": t_apex + fw.get("hang", 0.08) + 0.05,
 		"gravity": g,
-		"drag": 0.9,
+		"drag": 1.0,
 		"fade": "none",
 		"trail_len": 12,
 		"trail": [],
@@ -223,11 +223,14 @@ func _process_particles(delta: float) -> void:
 		# Mortar-specific: detect apex, trigger burst
 		if mode == "mortar":
 			var meta: Dictionary = p.meta
-			if p.pos.y <= meta.apex_y and p.vel.y >= -20.0:
-				# Reached apex — shrink gravity for brief hang
+			# Trigger when EITHER the mortar reaches the planned apex Y
+			# OR its upward motion has stopped (vel.y >= 0) — whichever
+			# comes first, since drag/numerics may shave off the planned peak.
+			var at_or_past_apex: bool = (p.pos.y <= meta.apex_y) or (p.vel.y >= 0.0)
+			if at_or_past_apex and meta.burst_queued:
 				p.gravity = 60.0
 				meta.post_apex += delta
-				if meta.post_apex >= meta.hang_time and meta.burst_queued:
+				if meta.post_apex >= meta.hang_time:
 					meta.burst_queued = false
 					if meta.has("custom_pop"):
 						_custom_pop(meta.custom_pop, p.pos)
@@ -249,6 +252,13 @@ func _process_particles(delta: float) -> void:
 		# Life tick
 		p.life -= delta
 		if p.life <= 0.0:
+			# Mortar safety net: if life expired before burst fired, force-fire it.
+			if mode == "mortar" and p.meta.get("burst_queued", false):
+				p.meta.burst_queued = false
+				if p.meta.has("custom_pop"):
+					_custom_pop(p.meta.custom_pop, p.pos)
+				elif p.meta.get("fw_id", -1) > 0:
+					FireworkBursts.burst(p.meta.fw_id, self, p.pos)
 			# On-death sub-burst (crossette, multibreak, etc.)
 			if p.meta.has("on_death"):
 				var on_death: Dictionary = p.meta.on_death
