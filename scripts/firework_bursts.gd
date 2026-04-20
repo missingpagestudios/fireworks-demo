@@ -91,6 +91,9 @@ static func catalog() -> Array:
 		{"id": 52, "name": "Heavy Barrage",       "category": "Stress Test",   "launch": "barrage", "shots": 100, "window": 10.0, "color": COL_WHITE, "settle_time": 22.0, "shake": 6.0},
 		{"id": 53, "name": "Inferno",             "category": "Stress Test",   "launch": "barrage", "shots": 100, "window": 8.0,  "color": COL_WHITE, "settle_time": 22.0, "shake": 6.0},
 		{"id": 54, "name": "Endless Ramp",        "category": "Stress Test",   "launch": "endless", "interval": 0.5, "ramp_period": 5.0, "ramp_factor": 0.75, "color": COL_WHITE, "settle_time": 999.0},
+
+		# --- Cinematic ---
+		{"id": 55, "name": "Apocalypse Show",     "category": "Cinematic",     "launch": "show",   "color": COL_WHITE, "settle_time": 64.0, "shake": 0.0},
 	]
 
 # --- Dispatch ----------------------------------------------------------

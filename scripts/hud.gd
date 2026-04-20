@@ -13,13 +13,17 @@ const SCREEN := Vector2(1920, 1080)
 @onready var _menu_title: Label = Label.new()
 @onready var _menu_opt1: Label = Label.new()
 @onready var _menu_opt2: Label = Label.new()
+@onready var _menu_opt3: Label = Label.new()
 @onready var _menu_hint: Label = Label.new()
+@onready var _fade: ColorRect = ColorRect.new()
 
 var _banner_alpha := 0.0
 var _target_alpha := 0.0
 var field: Node2D    # set by world.gd; used to read live counts
 var _fps_smoothed := 60.0
 var _menu_selected := 0
+var _fade_target := 0.0
+var _fade_speed := 1.0
 
 func _ready() -> void:
 	_banner.anchor_left = 0.0
@@ -142,16 +146,38 @@ func _ready() -> void:
 	_menu_opt2.offset_bottom = 660
 	_menu.add_child(_menu_opt2)
 
-	_menu_hint.text = "[Up/Down] choose   [Enter] start   [Esc] return to this menu"
+	_menu_opt3.add_theme_font_size_override("font_size", 56)
+	_menu_opt3.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	_menu_opt3.add_theme_constant_override("outline_size", 6)
+	_menu_opt3.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_menu_opt3.anchor_left = 0.5
+	_menu_opt3.anchor_right = 0.5
+	_menu_opt3.offset_left = -700
+	_menu_opt3.offset_right = 700
+	_menu_opt3.offset_top = 680
+	_menu_opt3.offset_bottom = 760
+	_menu.add_child(_menu_opt3)
+
+	_menu_hint.text = "[Up/Down or 1/2/3] choose   [Enter] start   [Esc] return to this menu"
 	_menu_hint.add_theme_font_size_override("font_size", 22)
 	_menu_hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7, 0.8))
 	_menu_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_menu_hint.anchor_left = 0.0
 	_menu_hint.anchor_right = 1.0
-	_menu_hint.offset_top = 760
-	_menu_hint.offset_bottom = 800
+	_menu_hint.offset_top = 860
+	_menu_hint.offset_bottom = 900
 	_menu.add_child(_menu_hint)
 	_refresh_menu_highlight()
+
+	# Fade-to-black overlay (always present, alpha 0 by default)
+	_fade.color = Color(0, 0, 0, 0)
+	_fade.anchor_left = 0.0
+	_fade.anchor_right = 1.0
+	_fade.anchor_top = 0.0
+	_fade.anchor_bottom = 1.0
+	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fade.z_index = 200
+	add_child(_fade)
 
 func show_banner(idx: int, total: int, fw_name: String, category: String) -> void:
 	_num_label.text = "%d / %d" % [idx, total]
@@ -167,6 +193,8 @@ func fade_out() -> void:
 func _process(delta: float) -> void:
 	_banner_alpha = move_toward(_banner_alpha, _target_alpha, delta * 2.5)
 	_banner.modulate.a = _banner_alpha
+	# Fade overlay
+	_fade.color.a = move_toward(_fade.color.a, _fade_target, delta * _fade_speed)
 	# FPS overlay (smoothed) + particle/smoke counts
 	var fps: float = Engine.get_frames_per_second()
 	_fps_smoothed = lerp(_fps_smoothed, fps, clamp(delta * 4.0, 0.0, 1.0))
@@ -193,7 +221,7 @@ func menu_visible() -> bool:
 	return _menu.visible
 
 func menu_move(delta_idx: int) -> void:
-	_menu_selected = (_menu_selected + delta_idx + 2) % 2
+	_menu_selected = (_menu_selected + delta_idx + 3) % 3
 	_refresh_menu_highlight()
 
 func menu_selected() -> int:
@@ -203,5 +231,18 @@ func _refresh_menu_highlight() -> void:
 	var sel := _menu_selected
 	_menu_opt1.text = ("> 1.  Walk through 1-50  <" if sel == 0 else "  1.  Walk through 1-50  ")
 	_menu_opt2.text = ("> 2.  Stress tests 51-54  <" if sel == 1 else "  2.  Stress tests 51-54  ")
+	_menu_opt3.text = ("> 3.  Apocalypse Show (60s)  <" if sel == 2 else "  3.  Apocalypse Show (60s)  ")
 	_menu_opt1.add_theme_color_override("font_color", Color(1, 1, 0.5) if sel == 0 else Color(0.7, 0.7, 0.8))
 	_menu_opt2.add_theme_color_override("font_color", Color(1, 1, 0.5) if sel == 1 else Color(0.7, 0.7, 0.8))
+	_menu_opt3.add_theme_color_override("font_color", Color(1, 0.7, 0.7) if sel == 2 else Color(0.6, 0.5, 0.5))
+
+# --- Fade-to-black -----------------------------------------------------
+
+func start_fade_to_black(duration: float) -> void:
+	_fade_target = 1.0
+	_fade_speed = 1.0 / max(duration, 0.05)
+
+func cancel_fade() -> void:
+	_fade_target = 0.0
+	_fade_speed = 4.0
+	_fade.color.a = 0.0

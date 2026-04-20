@@ -105,6 +105,8 @@ func launch(fw: Dictionary, ground_pos: Vector2) -> void:
 			_launch_barrage(fw, ground_pos)
 		"endless":
 			_launch_endless(fw, ground_pos)
+		"show":
+			_launch_apocalypse_show(fw, ground_pos)
 		_:
 			_launch_mortar(fw, ground_pos)
 
@@ -348,6 +350,245 @@ func _process_endless(delta: float) -> void:
 func stop_endless() -> void:
 	endless_active = false
 	endless_elapsed = 0.0
+
+# --- Apocalypse Show ---------------------------------------------------
+
+var host_ref = null   # set by world.gd; used for camera shake + fade
+
+func _launch_apocalypse_show(_fw: Dictionary, ground_pos: Vector2) -> void:
+	# 60-second cinematic: distant meteors in the background throughout,
+	# a curated firework crescendo, then a single huge meteor strike + fade.
+	var screen_w := 1920.0
+	var ground_y: float = ground_pos.y
+
+	# --- Distant meteors throughout 0-58s ---
+	# Emit one every ~0.8-1.6s (random). Each is a small bright streak
+	# that crosses from upper area diagonally toward the horizon.
+	var t := 0.5
+	while t < 57.5:
+		var jitter: float = rng.randf_range(-0.3, 0.3)
+		_schedule(t + jitter, _spawn_distant_meteor)
+		t += rng.randf_range(0.85, 1.6)
+
+	# --- Curated firework arc ---
+	# Helper to fire a specific catalog id at a screen X
+	var fire_at = func(fw_id: int, x: float):
+		var entry: Dictionary = _catalog_entry(fw_id)
+		launch(entry, Vector2(x, ground_y))
+
+	# Opening 0-15s: 5 measured shells
+	_schedule(1.5,  fire_at.bind(21, screen_w * 0.50))   # peony center
+	_schedule(4.5,  fire_at.bind(22, screen_w * 0.30))   # chrysanth left
+	_schedule(7.5,  fire_at.bind(23, screen_w * 0.70))   # dahlia right
+	_schedule(10.5, fire_at.bind(24, screen_w * 0.50))   # willow center
+	_schedule(13.5, fire_at.bind(25, screen_w * 0.35))   # palm
+
+	# Build 15-35s: 9 shells, increasing variety
+	var build_times := [15.5, 17.5, 19.5, 22.0, 24.5, 27.0, 29.5, 32.0, 34.0]
+	var build_ids   := [21,   27,   28,   25,   22,   36,   24,   31,   23]
+	var build_xs    := [0.65, 0.40, 0.55, 0.70, 0.30, 0.50, 0.65, 0.45, 0.55]
+	for i in build_times.size():
+		_schedule(build_times[i], fire_at.bind(build_ids[i], screen_w * build_xs[i]))
+
+	# Heavy 35-50s: 14 shells, often overlapping
+	var heavy_times := [35.5, 36.5, 37.7, 38.5, 39.6, 41.0, 41.8, 43.0, 44.2, 45.4, 46.5, 47.7, 48.5, 49.4]
+	var heavy_ids   := [22,   25,   26,   28,   35,   24,   38,   29,   22,   32,   25,   27,   24,   28]
+	var heavy_xs    := [0.30, 0.70, 0.50, 0.20, 0.80, 0.45, 0.60, 0.35, 0.65, 0.50, 0.25, 0.75, 0.50, 0.40]
+	for i in heavy_times.size():
+		_schedule(heavy_times[i], fire_at.bind(heavy_ids[i], screen_w * heavy_xs[i]))
+
+	# Frantic finale 50-57s: barrage stacking
+	var finale_times := [50.0, 50.5, 51.0, 51.4, 51.9, 52.3, 52.8, 53.2, 53.7, 54.1, 54.6, 55.0, 55.4, 55.9, 56.3]
+	var finale_ids   := [25,   24,   28,   22,   38,   35,   25,   24,   29,   28,   26,   22,   25,   24,   40]
+	for i in finale_times.size():
+		var fx: float = rng.randf_range(0.18, 0.82)
+		_schedule(finale_times[i], fire_at.bind(finale_ids[i], screen_w * fx))
+
+	# --- Pause 57-58s (no fireworks scheduled) — sky goes quiet ---
+
+	# --- The strike: meteor enters at 57.6s, impacts at 60.0s ---
+	_schedule(57.6, _strike_meteor_enter.bind(Vector2(screen_w * 0.5, ground_y)))
+	_schedule(60.0, _strike_meteor_impact.bind(Vector2(screen_w * 0.5, ground_y - 20)))
+	# Begin fade to black at impact
+	_schedule(60.0, _begin_fade_to_black)
+	# Return to menu after fade completes + hold
+	_schedule(63.5, _show_complete)
+
+func _catalog_entry(id: int) -> Dictionary:
+	var cat := FireworkBursts.catalog()
+	for entry in cat:
+		if entry.id == id:
+			return entry
+	return {}
+
+func _spawn_distant_meteor() -> void:
+	# Distant meteor: small dim head + long fading trail. Trajectory from
+	# upper area diagonally toward the horizon. Render via the additive
+	# layer so it glows like a real distant streak.
+	var screen_w := 1920.0
+	var skyline_y := 880.0  # approximate horizon line
+	var from_left := rng.randf() < 0.5
+	var start_x: float
+	var end_x: float
+	if from_left:
+		start_x = rng.randf_range(-50.0, screen_w * 0.4)
+		end_x = start_x + rng.randf_range(220.0, 480.0)
+	else:
+		start_x = rng.randf_range(screen_w * 0.6, screen_w + 50.0)
+		end_x = start_x - rng.randf_range(220.0, 480.0)
+	var start_y: float = rng.randf_range(60.0, 320.0)
+	var end_y: float = rng.randf_range(skyline_y - 240.0, skyline_y - 40.0)
+	var travel_time: float = rng.randf_range(2.4, 3.8)
+	var v: Vector2 = (Vector2(end_x, end_y) - Vector2(start_x, start_y)) / travel_time
+	# Color: warm white -> warm orange/red mix
+	var hue_pick := rng.randf()
+	var col: Color
+	if hue_pick < 0.55:
+		col = Color(1.0, 0.92, 0.78)
+	elif hue_pick < 0.85:
+		col = Color(1.0, 0.78, 0.45)
+	else:
+		col = Color(1.0, 0.55, 0.32)
+	spawn(Vector2(start_x, start_y), v, {
+		"color": col,
+		"size": rng.randf_range(0.9, 1.4),
+		"life": travel_time,
+		"gravity": 6.0,
+		"drag": 0.95,
+		"trail_len": rng.randi_range(20, 32),
+		"trail_color": Color(col.r * 0.9, col.g * 0.7, col.b * 0.5, 0.55),
+		"halo": 0.55,   # smaller halo => looks distant
+		"fade": "ease",
+	})
+
+func _strike_meteor_enter(impact_pos: Vector2) -> void:
+	# Single huge meteor entering from upper area, fast trajectory toward
+	# the impact point. Travel time 2.4s so it lands at the scheduled impact.
+	var travel_time := 2.4
+	var start := Vector2(impact_pos.x + 380.0, -120.0)
+	var v := (impact_pos - start) / travel_time
+	# Two tightly-overlapping particles for a thicker trail
+	for k in 2:
+		var size := 4.6 if k == 0 else 3.1
+		spawn(start + Vector2(k * 4.0, k * 2.0), v + Vector2(rng.randf_range(-4, 4), rng.randf_range(-4, 4)), {
+			"color": Color(1.0, 0.55, 0.18),
+			"size": size,
+			"life": travel_time + 0.05,
+			"gravity": 12.0,
+			"drag": 0.99,
+			"trail_len": 56,
+			"trail_color": Color(1.0, 0.42, 0.12, 0.85),
+			"halo": 1.6,
+			"fade": "none",
+		})
+	# Streaming embers shed from the meteor every 0.04s
+	var emit_ember = func():
+		var t_now := Time.get_ticks_usec()
+		_strike_ember(start, v, t_now)
+	for i in 60:
+		_schedule(i * 0.04, emit_ember)
+
+func _strike_ember(_start: Vector2, _v: Vector2, _t: int) -> void:
+	# Helper called repeatedly during meteor descent — emits ember at
+	# the meteor's current rough position. We approximate by reading the
+	# longest-trail meteor particle position.
+	# Find a particle with mode "spark" and large halo near the strike trajectory.
+	var pos: Vector2 = Vector2.ZERO
+	var found := false
+	for p in particles:
+		if p.halo >= 1.5 and p.size >= 3.0:
+			pos = p.pos
+			found = true
+			break
+	if not found:
+		return
+	for k in 2:
+		var a := rng.randf() * TAU
+		var s := rng.randf_range(40, 110)
+		spawn(pos + Vector2(rng.randf_range(-6, 6), rng.randf_range(-6, 6)),
+			Vector2(cos(a), sin(a)) * s, {
+			"color": Color(1.0, 0.65, 0.2),
+			"size": 1.1,
+			"life": 0.7,
+			"gravity": 90.0,
+			"drag": 0.35,
+			"trail_len": 4,
+			"trail_color": Color(1.0, 0.5, 0.18, 0.6),
+			"halo": 0.7,
+			"fade": "flicker",
+		})
+
+func _strike_meteor_impact(impact_pos: Vector2) -> void:
+	# Massive flash + shockwave + debris + smoke. This is the climax.
+	# 1) Screen-filling white flash particle (very large, very short life)
+	spawn(impact_pos + Vector2(0, -40), Vector2.ZERO, {
+		"color": Color(1.0, 0.95, 0.85),
+		"size": 220.0,
+		"life": 0.45,
+		"gravity": 0.0, "drag": 0.0,
+		"halo": 5.0, "fade": "ease",
+	})
+	# 2) Inner ground-burst flame
+	for i in 80:
+		var a: float = -PI * 0.5 + rng.randf_range(-0.55, 0.55)
+		var s: float = rng.randf_range(360, 760)
+		spawn(impact_pos, Vector2(cos(a), sin(a)) * s, {
+			"color": Color(1.0, 0.55, 0.18),
+			"size": 2.4, "life": 1.6,
+			"gravity": 220.0, "drag": 0.30,
+			"halo": 1.4, "fade": "flicker",
+			"trail_len": 6,
+			"trail_color": Color(1.0, 0.45, 0.15, 0.7),
+		})
+	# 3) Outer shockwave ring (horizontal-biased)
+	var ring_count := 110
+	for i in ring_count:
+		var a: float = TAU * (float(i) / ring_count)
+		var s := 540.0
+		spawn(impact_pos, Vector2(cos(a) * s, sin(a) * s * 0.4), {
+			"color": Color(1.0, 0.85, 0.55),
+			"size": 2.6, "life": 1.0,
+			"gravity": 80.0, "drag": 0.18,
+			"halo": 1.6, "fade": "ease",
+		})
+	# 4) Debris rocks lofted high
+	for i in 35:
+		var a: float = -PI * 0.5 + rng.randf_range(-0.7, 0.7)
+		var s: float = rng.randf_range(320, 620)
+		spawn(impact_pos, Vector2(cos(a), sin(a)) * s, {
+			"color": Color(0.9, 0.55, 0.25),
+			"size": 1.8, "life": 2.4,
+			"gravity": 320.0, "drag": 0.15,
+			"trail_len": 8, "halo": 0.9, "fade": "flicker",
+			"trail_color": Color(1.0, 0.5, 0.2, 0.65),
+		})
+	# 5) Massive smoke plume on the smoke layer
+	for k in 40:
+		var a: float = rng.randf() * TAU
+		var s: float = rng.randf_range(40, 220)
+		spawn_smoke(impact_pos, Vector2(cos(a), sin(a) * 0.8) * s, {
+			"color": Color(0.35, 0.30, 0.28),
+			"size": 28.0, "life": 5.0,
+			"gravity": -22.0, "drag": 0.4,
+			"alpha_max": 0.85, "size_growth": 32.0,
+		})
+	# 6) Camera shake — heavy, sustained-ish via repeated scheduled bumps
+	if host_ref != null and host_ref.has_method("request_shake"):
+		host_ref.request_shake(40.0)
+	for i in 6:
+		_schedule(i * 0.18, _aftershake)
+
+func _aftershake() -> void:
+	if host_ref != null and host_ref.has_method("request_shake"):
+		host_ref.request_shake(18.0)
+
+func _begin_fade_to_black() -> void:
+	if host_ref != null and host_ref.has_method("start_fade_to_black"):
+		host_ref.start_fade_to_black(2.5)
+
+func _show_complete() -> void:
+	if host_ref != null and host_ref.has_method("on_show_complete"):
+		host_ref.on_show_complete()
 
 # --- Perf logging API ---------------------------------------------------
 

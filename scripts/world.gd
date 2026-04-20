@@ -23,6 +23,14 @@ var _camera_shake_strength := 0.0
 func _ready() -> void:
 	_full_catalog = FireworkBursts.catalog()
 	_hud.field = _field
+	_field.host_ref = self
+	_show_menu()
+
+func start_fade_to_black(duration: float) -> void:
+	_hud.start_fade_to_black(duration)
+
+func on_show_complete() -> void:
+	# Apocalypse show finished — return to menu (stays on black until cleared)
 	_show_menu()
 
 func _process(delta: float) -> void:
@@ -71,6 +79,15 @@ func _input(event: InputEvent) -> void:
 			elif key == KEY_DOWN:
 				_hud.menu_move(1)
 				get_viewport().set_input_as_handled()
+			elif key == KEY_1:
+				_start_mode(0)
+				get_viewport().set_input_as_handled()
+			elif key == KEY_2:
+				_start_mode(1)
+				get_viewport().set_input_as_handled()
+			elif key == KEY_3:
+				_start_mode(2)
+				get_viewport().set_input_as_handled()
 			elif key == KEY_ENTER or key == KEY_KP_ENTER or key == KEY_SPACE:
 				_start_mode(_hud.menu_selected())
 				get_viewport().set_input_as_handled()
@@ -86,15 +103,19 @@ func _show_menu() -> void:
 	_state = "menu"
 	_state_time = 0.0
 	_field.clear_all()
+	_hud.cancel_fade()
 	_hud.show_menu()
 	_hud.fade_out()
 
 func _start_mode(mode_idx: int) -> void:
 	_hud.hide_menu()
+	_hud.cancel_fade()
 	if mode_idx == 0:
 		_active_catalog = _full_catalog.filter(func(e): return e.id <= 50)
+	elif mode_idx == 1:
+		_active_catalog = _full_catalog.filter(func(e): return e.id >= 51 and e.id <= 54)
 	else:
-		_active_catalog = _full_catalog.filter(func(e): return e.id >= 51)
+		_active_catalog = _full_catalog.filter(func(e): return e.id == 55)
 	_idx = 0
 	_start_banner()
 
