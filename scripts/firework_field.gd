@@ -29,6 +29,31 @@ var endless_next_ramp := 0.0
 var endless_ground := Vector2.ZERO
 var endless_elapsed := 0.0
 
+# Perf logging state
+var perf_active := false
+var _perf_label_text := ""
+var _perf_t := 0.0
+var _perf_next_sample := 0.0
+var _perf_sample_interval := 0.5
+var _perf_sim_usec := 0   # cumulative for current sample window
+var _perf_draw_usec := 0
+var _perf_sim_frames := 0
+var _perf_draw_frames := 0
+# Aggregates across the whole test
+var _perf_peak_sparks := 0
+var _perf_peak_smoke := 0
+var _perf_peak_total := 0
+var _perf_peak_t := 0.0
+var _perf_min_fps := 9999.0
+var _perf_min_fps_t := 0.0
+var _perf_min_fps_total := 0
+var _perf_fps_sum := 0.0
+var _perf_fps_samples := 0
+var _perf_first_below_60 := -1.0
+var _perf_first_below_60_total := 0
+var _perf_first_below_30 := -1.0
+var _perf_first_below_30_total := 0
+
 func _ready() -> void:
 	var mat := CanvasItemMaterial.new()
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
@@ -289,9 +314,14 @@ func _custom_pop(cp: Dictionary, pos: Vector2) -> void:
 func _process(delta: float) -> void:
 	_process_scheduled(delta)
 	_process_endless(delta)
+	var sim_t0 := Time.get_ticks_usec()
 	_process_particles(delta)
 	_process_smoke(delta)
+	_perf_sim_usec += Time.get_ticks_usec() - sim_t0
+	_perf_sim_frames += 1
 	queue_redraw()
+	if perf_active:
+		_perf_sample(delta)
 
 func _process_endless(delta: float) -> void:
 	if not endless_active:
@@ -316,6 +346,101 @@ func _process_endless(delta: float) -> void:
 func stop_endless() -> void:
 	endless_active = false
 	endless_elapsed = 0.0
+
+# --- Perf logging API ---------------------------------------------------
+
+func start_perf_log(test_label: String) -> void:
+	perf_active = true
+	_perf_label_text = test_label
+	_perf_t = 0.0
+	_perf_next_sample = 0.0
+	_perf_sim_usec = 0
+	_perf_draw_usec = 0
+	_perf_sim_frames = 0
+	_perf_draw_frames = 0
+	_perf_peak_sparks = 0
+	_perf_peak_smoke = 0
+	_perf_peak_total = 0
+	_perf_peak_t = 0.0
+	_perf_min_fps = 9999.0
+	_perf_min_fps_t = 0.0
+	_perf_min_fps_total = 0
+	_perf_fps_sum = 0.0
+	_perf_fps_samples = 0
+	_perf_first_below_60 = -1.0
+	_perf_first_below_60_total = 0
+	_perf_first_below_30 = -1.0
+	_perf_first_below_30_total = 0
+	print("")
+	print("=== STRESS TEST: %s ===" % _perf_label_text)
+	print("t       fps  sparks  smoke  sched  sim_us  draw_us")
+
+func stop_perf_log() -> void:
+	if not perf_active:
+		return
+	perf_active = false
+	var avg_fps: float = 0.0
+	if _perf_fps_samples > 0:
+		avg_fps = _perf_fps_sum / float(_perf_fps_samples)
+	print("")
+	print("=== SUMMARY: %s (%.1fs) ===" % [_perf_label_text, _perf_t])
+	print("Peak sparks:  %d" % _perf_peak_sparks)
+	print("Peak smoke:   %d" % _perf_peak_smoke)
+	print("Peak total:   %d at t=%.1fs" % [_perf_peak_total, _perf_peak_t])
+	print("Min FPS:      %d at t=%.1fs (%d particles)" % [int(_perf_min_fps), _perf_min_fps_t, _perf_min_fps_total])
+	print("Avg FPS:      %d" % int(avg_fps))
+	if _perf_first_below_60 >= 0.0:
+		print("First < 60:   t=%.1fs at %d particles" % [_perf_first_below_60, _perf_first_below_60_total])
+	else:
+		print("First < 60:   never")
+	if _perf_first_below_30 >= 0.0:
+		print("First < 30:   t=%.1fs at %d particles" % [_perf_first_below_30, _perf_first_below_30_total])
+	else:
+		print("First < 30:   never")
+	print("============================")
+	print("")
+
+func _perf_sample(delta: float) -> void:
+	_perf_t += delta
+	_perf_next_sample -= delta
+	# Track peaks every frame (cheap)
+	var sparks: int = particles.size()
+	var smoke: int = smoke_particles.size()
+	var total: int = sparks + smoke
+	if sparks > _perf_peak_sparks: _perf_peak_sparks = sparks
+	if smoke > _perf_peak_smoke: _perf_peak_smoke = smoke
+	if total > _perf_peak_total:
+		_perf_peak_total = total
+		_perf_peak_t = _perf_t
+	var fps: float = Engine.get_frames_per_second()
+	_perf_fps_sum += fps
+	_perf_fps_samples += 1
+	if fps < _perf_min_fps:
+		_perf_min_fps = fps
+		_perf_min_fps_t = _perf_t
+		_perf_min_fps_total = total
+	if _perf_first_below_60 < 0.0 and fps < 60.0 and _perf_t > 0.5:
+		_perf_first_below_60 = _perf_t
+		_perf_first_below_60_total = total
+	if _perf_first_below_30 < 0.0 and fps < 30.0 and _perf_t > 0.5:
+		_perf_first_below_30 = _perf_t
+		_perf_first_below_30_total = total
+	# Periodic snapshot to console
+	if _perf_next_sample <= 0.0:
+		_perf_next_sample = _perf_sample_interval
+		var sim_us: int = 0
+		var draw_us: int = 0
+		if _perf_sim_frames > 0:
+			sim_us = _perf_sim_usec / _perf_sim_frames
+		if _perf_draw_frames > 0:
+			draw_us = _perf_draw_usec / _perf_draw_frames
+		print("%5.1fs  %3d  %5d   %4d   %4d   %5d   %5d" % [
+			_perf_t, int(fps), sparks, smoke, _scheduled.size(), sim_us, draw_us
+		])
+		_perf_sim_usec = 0
+		_perf_draw_usec = 0
+		_perf_sim_frames = 0
+		_perf_draw_frames = 0
 
 func _process_smoke(delta: float) -> void:
 	var i := smoke_particles.size() - 1
@@ -447,8 +572,11 @@ func _process_particles(delta: float) -> void:
 # --- Drawing ------------------------------------------------------------
 
 func _draw() -> void:
+	var t0 := Time.get_ticks_usec()
 	for p in particles:
 		_draw_particle(p)
+	_perf_draw_usec += Time.get_ticks_usec() - t0
+	_perf_draw_frames += 1
 
 func _draw_particle(p: Dictionary) -> void:
 	var life_t: float = clamp(p.life / p.life_max, 0.0, 1.0)

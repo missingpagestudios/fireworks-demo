@@ -82,6 +82,7 @@ func _input(event: InputEvent) -> void:
 # --- Menu / mode selection ---------------------------------------------
 
 func _show_menu() -> void:
+	_field.stop_perf_log()
 	_state = "menu"
 	_state_time = 0.0
 	_field.clear_all()
@@ -116,8 +117,12 @@ func _launch_current() -> void:
 	if shake > 0.0:
 		_camera_shake_time = 0.35
 		_camera_shake_strength = shake
+	# Start perf logging for stress tests
+	if fw.id >= 51:
+		_field.start_perf_log(fw.name)
 
 func _advance() -> void:
+	_field.stop_perf_log()
 	_idx = (_idx + 1) % _active_catalog.size()
 	_field.clear_all()
 	_start_banner()
