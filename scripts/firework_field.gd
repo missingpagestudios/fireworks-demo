@@ -1,24 +1,51 @@
 extends Node2D
 ## Particle engine for fireworks.
 ##
-## Particles are stored as untyped Dictionaries for flexibility. Each frame we
-## integrate position/velocity with gravity and drag, tick life, decay trails,
-## and prune dead particles. _draw() paints trails, halos, and bright cores.
-## CanvasItemMaterial uses BLEND_MODE_ADD so overlapping particles glow.
+## Particles are Dictionaries integrated with gravity + optional drag.
+## Drawing path: one draw_texture_rect per particle (against a precomputed
+## radial gradient sparkle texture) + one draw_polyline for trails. The field
+## node uses BLEND_MODE_ADD so overlapping particles bloom naturally.
+##
+## Smoke-style particles (snake / smoke bomb) live on a separate non-additive
+## sub-node so dark/opaque colors render correctly.
 
 const DEFAULT_GRAVITY := 180.0
-const DEFAULT_DRAG := 0.35          # velocity retained per second
-const MAX_PARTICLES := 6000
+const DEFAULT_DRAG := 0.35
+const MAX_PARTICLES := 8000
 
-var particles: Array = []
+var particles: Array = []          # additive (sparks)
+var smoke_particles: Array = []    # normal blend (smoke / snake)
 var rng := RandomNumberGenerator.new()
+var spark_tex: Texture2D
+var _smoke_layer: SmokeLayer
 
 func _ready() -> void:
 	var mat := CanvasItemMaterial.new()
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	self.material = mat
+	spark_tex = _build_spark_texture()
+	_smoke_layer = SmokeLayer.new()
+	_smoke_layer.field = self
+	_smoke_layer.z_index = -1
+	add_child(_smoke_layer)
 	rng.randomize()
 	set_process(true)
+
+func _build_spark_texture() -> Texture2D:
+	var size := 64
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var center := Vector2(size, size) * 0.5
+	var max_r := float(size) * 0.5
+	for y in size:
+		for x in size:
+			var d := Vector2(x, y).distance_to(center)
+			var t: float = clamp(d / max_r, 0.0, 1.0)
+			# Soft halo + bright core composite
+			var halo: float = pow(1.0 - t, 2.6) * 0.45
+			var core: float = pow(max(0.0, 1.0 - d / 4.5), 1.4) * 0.95
+			var a: float = clamp(halo + core, 0.0, 1.0)
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	return ImageTexture.create_from_image(img)
 
 # --- Public API ----------------------------------------------------------
 
@@ -37,8 +64,34 @@ func launch(fw: Dictionary, ground_pos: Vector2) -> void:
 		"none":
 			# Used by "snake" / smoke bomb — stay on ground, no mortar.
 			FireworkBursts.burst(fw.id, self, ground_pos + Vector2(0, -20))
+		"barrage":
+			_launch_barrage(fw, ground_pos)
 		_:
 			_launch_mortar(fw, ground_pos)
+
+func _launch_barrage(fw: Dictionary, ground_pos: Vector2) -> void:
+	# Stress test: fire 50 random fireworks across 10 seconds, each at a
+	# random X offset and using its own catalog launch behavior.
+	var catalog: Array = FireworkBursts.catalog()
+	# Pool of valid IDs — exclude 51 (this one) and 11 (cake — too long itself)
+	var pool: Array = []
+	for entry in catalog:
+		if entry.id < 51 and entry.id != 11:
+			pool.append(entry)
+	pool.shuffle()
+	# Pick first 50 (with repeats if pool is smaller)
+	var shots := 50
+	var window := 10.0
+	var screen_w := 1920.0
+	var margin := 120.0
+	var fire_one = func(sub_fw: Dictionary, x_pos: float):
+		var sub_ground := Vector2(x_pos, ground_pos.y)
+		launch(sub_fw, sub_ground)
+	for i in shots:
+		var entry: Dictionary = pool[i % pool.size()]
+		var delay := (float(i) / float(shots - 1)) * window + rng.randf_range(-0.05, 0.05)
+		var x_pos := rng.randf_range(margin, screen_w - margin)
+		_schedule(max(0.0, delay), fire_one.bind(entry, x_pos))
 
 ## Spawn a particle. `overrides` is a Dictionary of field overrides.
 func spawn(pos: Vector2, vel: Vector2, overrides: Dictionary = {}) -> void:
@@ -66,9 +119,29 @@ func spawn(pos: Vector2, vel: Vector2, overrides: Dictionary = {}) -> void:
 	}
 	particles.append(p)
 
+## Spawn a smoke particle (rendered on a non-additive sub-layer).
+func spawn_smoke(pos: Vector2, vel: Vector2, overrides: Dictionary = {}) -> void:
+	if smoke_particles.size() >= MAX_PARTICLES:
+		return
+	var p := {
+		"pos": pos,
+		"vel": vel,
+		"color": overrides.get("color", Color(0.5, 0.5, 0.5)),
+		"size": overrides.get("size", 6.0),
+		"life": overrides.get("life", 2.0),
+		"life_max": overrides.get("life", 2.0),
+		"gravity": overrides.get("gravity", -10.0),
+		"drag": overrides.get("drag", 0.4),
+		"alpha_max": overrides.get("alpha_max", 0.5),
+		"size_growth": overrides.get("size_growth", 0.0),
+	}
+	smoke_particles.append(p)
+
 ## Clear everything — called between firework types.
 func clear_all() -> void:
 	particles.clear()
+	smoke_particles.clear()
+	_scheduled.clear()
 
 # --- Launch helpers -----------------------------------------------------
 
@@ -188,7 +261,21 @@ func _custom_pop(cp: Dictionary, pos: Vector2) -> void:
 func _process(delta: float) -> void:
 	_process_scheduled(delta)
 	_process_particles(delta)
+	_process_smoke(delta)
 	queue_redraw()
+
+func _process_smoke(delta: float) -> void:
+	var i := smoke_particles.size() - 1
+	while i >= 0:
+		var p = smoke_particles[i]
+		p.vel.y += p.gravity * delta
+		p.vel *= pow(max(p.drag, 0.0001), delta)
+		p.pos += p.vel * delta
+		p.size += p.size_growth * delta
+		p.life -= delta
+		if p.life <= 0.0:
+			smoke_particles.remove_at(i)
+		i -= 1
 
 func _process_scheduled(delta: float) -> void:
 	for s in _scheduled:
@@ -279,6 +366,19 @@ func _process_particles(delta: float) -> void:
 							})
 					"pop":
 						FireworkBursts.burst(on_death.get("id", 15), self, p.pos)
+					"drone_burst":
+						# Each drone bursts into its own colored mini-peony.
+						var col: Color = on_death.get("color", p.color)
+						for k in 24:
+							var a = (TAU / 24) * k + rng.randf_range(-0.08, 0.08)
+							var spd = rng.randf_range(140, 220)
+							spawn(p.pos, Vector2(cos(a), sin(a)) * spd, {
+								"color": col, "size": 1.8, "life": 1.4,
+								"gravity": 130.0, "drag": 0.4,
+								"halo": 1.0, "fade": "linear",
+								"trail_len": 4,
+								"trail_color": Color(col.r, col.g, col.b, 0.5),
+							})
 			particles.remove_at(i)
 		i -= 1
 
@@ -291,7 +391,6 @@ func _draw() -> void:
 func _draw_particle(p: Dictionary) -> void:
 	var life_t: float = clamp(p.life / p.life_max, 0.0, 1.0)
 	var alpha: float = 1.0
-	var mode: String = p.mode
 	var fade: String = p.fade
 
 	match fade:
@@ -310,29 +409,25 @@ func _draw_particle(p: Dictionary) -> void:
 		_:
 			alpha = life_t
 
-	# Draw trail
+	if alpha <= 0.001:
+		return
+
+	# Trail — single batched draw_polyline call.
 	if p.trail.size() > 1:
 		var tc: Color = p.trail_color
-		var n: int = p.trail.size()
-		for i in n - 1:
-			var a0 = (float(i) / float(n)) * alpha * tc.a
-			var from = p.trail[i]
-			var to = p.trail[i + 1]
-			draw_line(from, to, Color(tc.r, tc.g, tc.b, a0), max(p.size * 0.5, 0.8))
+		var trail_color := Color(tc.r, tc.g, tc.b, tc.a * alpha * 0.9)
+		draw_polyline(PackedVector2Array(p.trail), trail_color, max(p.size * 0.55, 0.9), false)
 
-	# Draw halo
+	# Spark sprite — single draw call replaces halo + glow + core.
 	var c: Color = p.color
-	var halo_r = p.size * 2.8 * p.halo
-	draw_circle(p.pos, halo_r, Color(c.r, c.g, c.b, 0.18 * alpha))
-
-	# Draw warm-core glow (slightly larger than bright core)
-	draw_circle(p.pos, p.size * 1.4, Color(c.r, c.g, c.b, 0.55 * alpha))
-
-	# Bright white/hot core
-	var core_c := Color(
-		lerp(1.0, c.r, 0.4),
-		lerp(1.0, c.g, 0.4),
-		lerp(1.0, c.b, 0.4),
+	var radius: float = p.size * 3.4 * p.halo
+	var d: float = radius * 2.0
+	var rect := Rect2(p.pos.x - radius, p.pos.y - radius, d, d)
+	# Brighten core by adding white bias (capped at 1.0 in additive)
+	var draw_color := Color(
+		min(c.r + 0.25, 1.0),
+		min(c.g + 0.25, 1.0),
+		min(c.b + 0.25, 1.0),
 		alpha
 	)
-	draw_circle(p.pos, p.size, core_c)
+	draw_texture_rect(spark_tex, rect, false, draw_color)

@@ -85,6 +85,9 @@ static func catalog() -> Array:
 		{"id": 48, "name": "Kinetic Wireframe","category": "Futuristic",       "launch": "mortar", "apex": 300.0, "hang": 0.2, "color": COL_CYAN,   "settle_time": 7.0, "shake": 4.5},
 		{"id": 49, "name": "Gravity Loop",    "category": "Futuristic",        "launch": "mortar", "apex": 300.0, "hang": 0.2, "color": COL_ORANGE, "settle_time": 7.0},
 		{"id": 50, "name": "Singularity",     "category": "Futuristic",        "launch": "mortar", "apex": 300.0, "hang": 0.3, "color": COL_WHITE,  "settle_time": 8.0, "shake": 10.0},
+
+		# --- Stress test ---
+		{"id": 51, "name": "Grand Finale Barrage","category": "Stress Test",   "launch": "barrage", "color": COL_WHITE, "settle_time": 18.0, "shake": 6.0},
 	]
 
 # --- Dispatch ----------------------------------------------------------
@@ -259,43 +262,53 @@ static func _fountain(field, pos: Vector2) -> void:
 
 static func _black_snake(field, pos: Vector2) -> void:
 	var rng = field.rng
-	# Slow expansion of ashy dark particles crawling outward
-	for t in 40:
-		var delay = t * 0.08
-		field._schedule(delay, func():
-			for k in 5:
-				var a = rng.randf() * TAU
-				var s = rng.randf_range(8, 25)
-				field.spawn(pos, Vector2(cos(a), sin(a)) * s, {
-					"color": Color(0.22, 0.18, 0.16), "size": 3.0, "life": 2.5,
-					"gravity": 2.0, "drag": 0.8,
-					"halo": 2.2, "fade": "ease",
-				})
-				# Smoke wisp
-				field.spawn(pos, Vector2(cos(a), sin(a)) * s * 0.3, {
-					"color": Color(0.35, 0.33, 0.3), "size": 4.0, "life": 1.8,
-					"gravity": -8.0, "drag": 0.5,
-					"halo": 2.8, "fade": "ease",
-				})
-		)
+	# Real snakes leave a charred winding trail. We render this on the
+	# non-additive smoke layer so the dark color reads correctly, plus a
+	# single ember head moving in a sine-wave path along the ground.
+	var path_dir := Vector2(1.0, 0.0).rotated(rng.randf_range(-0.4, 0.4))
+	var emit_segment = func(idx: int):
+		var t := float(idx)
+		var head := pos + path_dir * (t * 6.0) + Vector2(0, sin(t * 0.4) * 18.0)
+		# Charred snake body — dark grey on smoke layer
+		field.spawn_smoke(head, Vector2(rng.randf_range(-4, 4), rng.randf_range(-4, 4)), {
+			"color": Color(0.18, 0.14, 0.12), "size": 6.0, "life": 3.5,
+			"gravity": -2.0, "drag": 0.6,
+			"alpha_max": 0.85, "size_growth": 1.2,
+		})
+		# Soft grey smoke wisp rising from the path
+		field.spawn_smoke(head, Vector2(rng.randf_range(-6, 6), -10.0 - rng.randf_range(0, 8)), {
+			"color": Color(0.45, 0.42, 0.40), "size": 8.0, "life": 2.5,
+			"gravity": -22.0, "drag": 0.5,
+			"alpha_max": 0.55, "size_growth": 4.0,
+		})
+		# Tiny ember at head — additive layer for life
+		field.spawn(head, Vector2(rng.randf_range(-12, 12), rng.randf_range(-25, -10)), {
+			"color": Color(1.0, 0.55, 0.20), "size": 1.2, "life": 0.45,
+			"gravity": 90.0, "drag": 0.4,
+			"halo": 0.8, "fade": "flicker",
+		})
+	for i in 60:
+		field._schedule(i * 0.06, emit_segment.bind(i))
 
 static func _smoke_bomb(field, pos: Vector2) -> void:
 	var rng = field.rng
-	var base_hue = rng.randf()
-	for t in 55:
-		var delay = t * 0.05
-		field._schedule(delay, func():
-			for k in 8:
-				var a = rng.randf() * TAU
-				var s = rng.randf_range(40, 160)
-				var hue = fposmod(base_hue + rng.randf_range(-0.05, 0.05), 1.0)
-				var col := Color.from_hsv(hue, 0.65, 0.9)
-				field.spawn(pos, Vector2(cos(a), sin(a)) * s, {
-					"color": col, "size": 6.0, "life": 1.8,
-					"gravity": -12.0, "drag": 0.45,
-					"halo": 2.4, "fade": "ease",
-				})
-		)
+	# Real smoke bomb: a colored opaque cloud rises and disperses.
+	# Render on the non-additive smoke layer so the color reads correctly.
+	var base_hue: float = rng.randf()
+	var emit_puff = func():
+		for k in 6:
+			var a = rng.randf() * TAU
+			var s = rng.randf_range(20, 90)
+			var hue = fposmod(base_hue + rng.randf_range(-0.04, 0.04), 1.0)
+			var col := Color.from_hsv(hue, 0.78, 0.85)
+			field.spawn_smoke(pos + Vector2(rng.randf_range(-6, 6), 0),
+				Vector2(cos(a), sin(a) * 0.6 - 0.4) * s, {
+				"color": col, "size": 14.0, "life": 3.5,
+				"gravity": -18.0, "drag": 0.45,
+				"alpha_max": 0.7, "size_growth": 22.0,
+			})
+	for t in 60:
+		field._schedule(t * 0.05, emit_puff)
 
 static func _crackle_ball(field, pos: Vector2) -> void:
 	var rng = field.rng
@@ -322,19 +335,43 @@ static func _crackle_ball(field, pos: Vector2) -> void:
 
 static func _firecracker(field, pos: Vector2) -> void:
 	var rng = field.rng
-	# Single harsh flash + dust
-	field.spawn(pos, Vector2.ZERO, {
-		"color": COL_WHITE, "size": 14.0, "life": 0.12,
-		"gravity": 0.0, "drag": 0.0, "halo": 3.0, "fade": "ease",
-	})
-	for i in 18:
-		var a = rng.randf() * TAU
-		var s = rng.randf_range(80, 280)
-		field.spawn(pos, Vector2(cos(a), sin(a)) * s, {
-			"color": Color(1.0, 0.75, 0.35), "size": 1.4, "life": 0.5,
-			"gravity": 300.0, "drag": 0.2,
+	# Lift the firecracker so the bang isn't half-buried, and add a fuse spark first.
+	var fc_pos := pos + Vector2(0, -110)
+	# Fuse spark traveling upward, leaving a trail
+	var fuse_step = func(idx: int):
+		field.spawn(pos + Vector2(rng.randf_range(-3, 3), -idx * 11.0),
+			Vector2(rng.randf_range(-15, 15), -50.0), {
+			"color": Color(1.0, 0.85, 0.35), "size": 1.1, "life": 0.35,
+			"gravity": 80.0, "drag": 0.4,
 			"halo": 0.6, "fade": "flicker",
 		})
+	for i in 10:
+		field._schedule(i * 0.05, fuse_step.bind(i))
+	# Bang after fuse
+	field._schedule(0.55, func():
+		# Sharp white flash
+		field.spawn(fc_pos, Vector2.ZERO, {
+			"color": COL_WHITE, "size": 18.0, "life": 0.15,
+			"gravity": 0.0, "drag": 0.0, "halo": 3.5, "fade": "ease",
+		})
+		# Scattered sparks — short-lived, no falling underground
+		for i in 24:
+			var a = rng.randf() * TAU
+			var s = rng.randf_range(120, 320)
+			field.spawn(fc_pos, Vector2(cos(a), sin(a)) * s, {
+				"color": Color(1.0, 0.78, 0.4), "size": 1.4, "life": 0.55,
+				"gravity": 280.0, "drag": 0.25,
+				"halo": 0.7, "fade": "flicker",
+			})
+		# Smoke puff on the smoke layer
+		for k in 6:
+			var a = rng.randf() * TAU
+			field.spawn_smoke(fc_pos, Vector2(cos(a), sin(a)) * rng.randf_range(20, 60), {
+				"color": Color(0.5, 0.5, 0.5), "size": 10.0, "life": 1.4,
+				"gravity": -20.0, "drag": 0.4,
+				"alpha_max": 0.55, "size_growth": 16.0,
+			})
+	)
 
 static func _small_mortar(field, pos: Vector2) -> void:
 	_circle_burst(field, pos, 45, 140, 220, COL_BLUE, 1.4, 160, 0.35, 0, 1.0, 1.8)
@@ -434,17 +471,17 @@ static func _star_shell(field, pos: Vector2) -> void:
 # --- PRO AERIAL (21-40) ------------------------------------------------
 
 static func _peony(field, pos: Vector2) -> void:
-	_circle_burst(field, pos, 110, 200, 320, COL_PINK, 1.8, 130, 0.38, 0, 1.1, 2.2)
+	_circle_burst(field, pos, 160, 220, 360, COL_PINK, 2.2, 130, 0.38, 0, 1.2, 2.6)
 
 static func _chrysanthemum(field, pos: Vector2) -> void:
-	_circle_burst(field, pos, 110, 200, 320, COL_GOLD, 2.0, 150, 0.38, 10, 1.1, 2.2)
+	_circle_burst(field, pos, 160, 220, 360, COL_GOLD, 2.4, 150, 0.38, 12, 1.2, 2.6)
 
 static func _dahlia(field, pos: Vector2) -> void:
-	_circle_burst(field, pos, 35, 220, 340, COL_PURPLE, 2.6, 90, 0.5, 0, 1.3, 3.0)
+	_circle_burst(field, pos, 60, 240, 360, COL_PURPLE, 2.8, 90, 0.5, 0, 1.4, 3.4)
 
 static func _willow(field, pos: Vector2) -> void:
 	var rng = field.rng
-	var count = 65
+	var count = 100
 	for i in count:
 		var a = TAU * (float(i) / count) + rng.randf_range(-0.05, 0.05)
 		var s = rng.randf_range(150, 260)
@@ -519,7 +556,7 @@ static func _brocade(field, pos: Vector2) -> void:
 
 static func _kamuro(field, pos: Vector2) -> void:
 	var rng = field.rng
-	var count = 90
+	var count = 130
 	for i in count:
 		var a = rng.randf() * TAU
 		var s = rng.randf_range(100, 220)
@@ -622,17 +659,23 @@ static func _smiley_face(field, pos: Vector2) -> void:
 		})
 
 static func _star_pattern(field, pos: Vector2) -> void:
-	# 5-point star radial spokes with filler arcs
-	for i in 5:
-		var a = -PI * 0.5 + TAU * (float(i) / 5.0)
-		# Radial spoke — a line of particles along this direction
-		for k in 10:
-			var r = 30.0 + float(k) * 26.0
-			var speed = r * 7.0
-			var dir = Vector2(cos(a), sin(a))
+	# 5-point star: outer points + inner valleys, radial spokes contained on screen
+	var rng = field.rng
+	var outer_r := 240.0
+	var inner_r := 95.0
+	for i in 10:
+		var a = -PI * 0.5 + TAU * (float(i) / 10.0)
+		var r = outer_r if (i % 2 == 0) else inner_r
+		# Particles travel from center to (r along direction) over ~1.0s
+		# v0 ≈ r * (some factor accounting for drag) — use 1.6 with drag 0.4
+		var dir = Vector2(cos(a), sin(a))
+		var spoke_count := 7
+		for k in spoke_count:
+			var step = float(k) / float(spoke_count - 1)
+			var speed = r * step * 2.2
 			field.spawn(pos, dir * speed, {
-				"color": COL_CYAN, "size": 2.0, "life": 2.0,
-				"gravity": 70.0, "drag": 0.42, "halo": 1.1, "fade": "ease",
+				"color": COL_CYAN, "size": 2.0, "life": 2.4,
+				"gravity": 60.0, "drag": 0.45, "halo": 1.1, "fade": "ease",
 			})
 
 static func _multibreak(field, pos: Vector2) -> void:
@@ -747,25 +790,34 @@ static func _pro_salute(field, pos: Vector2) -> void:
 
 static func _drone_swarm(field, pos: Vector2) -> void:
 	var rng = field.rng
-	# Formation V-flock that slowly fans outward
-	var count = 40
-	var base_dir = Vector2(0, -1).rotated(rng.randf_range(-0.3, 0.3))
+	# Each drone is a small mortar that flies in formation, then bursts into its
+	# own miniature firework. The swarm fans out from a V-formation.
+	var count := 18
+	var palette = [COL_CYAN, COL_PINK, COL_GREEN, COL_YELLOW, COL_PURPLE, COL_ORANGE]
 	for i in count:
 		var off_i = float(i) - count * 0.5
-		var lateral = Vector2(base_dir.y, -base_dir.x) * (off_i * 8.0)
-		var along = base_dir * (abs(off_i) * 6.0)
-		var p_start = pos + lateral - along
-		var v = base_dir * 110.0 + lateral.normalized() * (abs(off_i) * 4.0)
-		field.spawn(p_start, v, {
-			"color": COL_CYAN, "size": 1.8, "life": 2.8,
-			"gravity": 5.0, "drag": 0.85,
-			"trail_len": 10, "halo": 1.2, "fade": "flicker",
-			"trail_color": Color(0.35, 1.0, 0.95, 0.7),
+		var spread_x := off_i * 60.0
+		var spread_y := -abs(off_i) * 20.0   # V shape
+		var target := pos + Vector2(spread_x, spread_y - rng.randf_range(60, 140))
+		# Drone trail from center to target over ~0.9s
+		var t_trav := 0.9
+		var v0 := (target - pos) / t_trav
+		var col: Color = palette[i % palette.size()]
+		# Spawn the drone as a colored mortar particle that bursts on death
+		field.particles.append({
+			"pos": pos, "vel": v0,
+			"color": col, "size": 2.0,
+			"life": t_trav, "life_max": t_trav,
+			"gravity": 0.0, "drag": 1.0,
+			"fade": "none",
+			"trail_len": 18, "trail": [],
+			"trail_color": Color(col.r, col.g, col.b, 0.8),
+			"halo": 1.2, "mode": "drone",
+			"strobe_rate": 0.0, "strobe_t": 0.0, "flicker_seed": rng.randf() * 5.0,
+			"meta": {
+				"on_death": {"kind": "drone_burst", "color": col},
+			},
 		})
-	# Finale explosion after 1.2s
-	field._schedule(1.2, func():
-		_circle_burst(field, pos + base_dir * 120.0, 60, 180, 280, COL_CYAN, 1.6, 120, 0.4, 6, 1.1, 2.0)
-	)
 
 static func _quantum_bloom(field, pos: Vector2) -> void:
 	var rng = field.rng
@@ -796,31 +848,35 @@ static func _quantum_bloom(field, pos: Vector2) -> void:
 		)
 
 static func _holo_letter(field, pos: Vector2) -> void:
-	# Draws an "A" shape using particle positions, holds briefly, then dissipates
+	# Particle-formed letter "A" — particles travel from center to formation
+	# points, hover briefly, then scatter outward.
 	var rng = field.rng
 	var points = _letter_A_points()
-	var scale = 100.0
+	var scale := 280.0
 	for pt in points:
-		var local = (pt - Vector2(0.5, 0.5)) * scale * Vector2(1.0, 1.0)
-		var target = pos + Vector2(local.x, local.y - 10)
-		# Particles start from center and fly to letter positions, then hover
-		var v = (target - pos) * 2.5
-		field.spawn(pos, v, {
-			"color": COL_CYAN, "size": 2.0, "life": 2.8,
-			"gravity": 0.0, "drag": 0.001,  # near-full stop
-			"halo": 1.3, "fade": "ease",
-		})
-	# After letter forms, scatter
-	field._schedule(1.8, func():
+		var local = (pt - Vector2(0.5, 0.5)) * scale
+		# Each formation point: spawn 3 particles densely so the letter reads thick.
+		# v = local * 7 with drag 0.001 → particles arrive at target then stop dead.
+		for k in 3:
+			var jitter = Vector2(rng.randf_range(-4, 4), rng.randf_range(-4, 4))
+			var v = (local + jitter) * 7.0
+			field.spawn(pos, v, {
+				"color": COL_CYAN, "size": 2.6, "life": 3.2,
+				"gravity": 0.0, "drag": 0.001,
+				"halo": 1.5, "fade": "ease",
+			})
+	# After the letter forms, scatter all particles outward
+	var scatter = func():
 		for pt in points:
 			var local = (pt - Vector2(0.5, 0.5)) * scale
 			var target = pos + local
-			var v = _rand_unit(rng) * rng.randf_range(100, 200)
-			field.spawn(target, v, {
-				"color": COL_CYAN, "size": 1.6, "life": 1.0,
-				"gravity": 140.0, "drag": 0.3, "halo": 1.0, "fade": "flicker",
-			})
-	)
+			for k in 3:
+				var v = _rand_unit(rng) * rng.randf_range(160, 280)
+				field.spawn(target, v, {
+					"color": COL_CYAN, "size": 1.8, "life": 1.2,
+					"gravity": 140.0, "drag": 0.3, "halo": 1.0, "fade": "flicker",
+				})
+	field._schedule(2.0, scatter)
 
 static func _letter_A_points() -> Array:
 	# Hand-picked points along letter A
@@ -840,25 +896,27 @@ static func _letter_A_points() -> Array:
 	return pts
 
 static func _nano_fractal(field, pos: Vector2) -> void:
-	_fractal_burst(field, pos, 3, 180.0, COL_PINK)
+	# Recurses 2 levels (down from 3) and child count drops at each level
+	# to keep the final wave from blowing the particle budget.
+	_fractal_burst(field, pos, 2, 200.0, COL_PINK, 6)
 
-static func _fractal_burst(field, pos: Vector2, depth: int, speed: float, color: Color) -> void:
+static func _fractal_burst(field, pos: Vector2, depth: int, speed: float, color: Color, count: int) -> void:
 	var rng = field.rng
-	var count = 6
-	var spawn_child = func(child_pos: Vector2, child_depth: int, child_speed: float, child_color: Color):
-		_fractal_burst(field, child_pos, child_depth, child_speed, child_color)
+	var spawn_child = func(child_pos: Vector2, child_depth: int, child_speed: float, child_color: Color, child_count: int):
+		_fractal_burst(field, child_pos, child_depth, child_speed, child_color, child_count)
 	for i in count:
 		var a = TAU * (float(i) / count) + rng.randf_range(-0.1, 0.1)
 		var v = Vector2(cos(a), sin(a)) * speed
 		field.spawn(pos, v, {
-			"color": color, "size": 1.8 + depth * 0.3, "life": 0.9,
-			"gravity": 90.0, "drag": 0.4, "halo": 1.0, "fade": "ease",
+			"color": color, "size": 2.0 + depth * 0.3, "life": 1.0,
+			"gravity": 90.0, "drag": 0.4, "halo": 1.1, "fade": "ease",
 			"trail_len": 6,
-			"trail_color": Color(color.r, color.g, color.b, 0.6),
+			"trail_color": Color(color.r, color.g, color.b, 0.65),
 		})
 		if depth > 0:
 			var child_pos = pos + v * 0.7
-			field._schedule(0.55, spawn_child.bind(child_pos, depth - 1, speed * 0.55, color))
+			# Children: half the count, smaller speed
+			field._schedule(0.55, spawn_child.bind(child_pos, depth - 1, speed * 0.55, color, max(3, count - 2)))
 
 static func _plasma_vortex(field, pos: Vector2) -> void:
 	var emit_ring = func(t_idx: int):
@@ -995,9 +1053,12 @@ static func _singularity(field, pos: Vector2) -> void:
 			"gravity": 0.0, "drag": 0.0, "halo": 7.0, "fade": "ease",
 		})
 	)
-	# Phase 3: huge outward shell, multi-color
-	field._schedule(1.1, func():
+	# Phase 3: huge outward shell, multi-color (trimmed for perf — one combined ring + scattered colors)
+	var grand_shell = func():
 		var colors = [COL_RED, COL_GREEN, COL_BLUE, COL_YELLOW, COL_CYAN, COL_PINK, COL_PURPLE]
+		# One dense ring (140 white particles, no trails) for shockwave
+		_circle_burst(field, pos, 140, 280, 420, COL_WHITE, 1.4, 110, 0.3, 0, 1.3, 2.2)
+		# Scattered color stars — one pass per color, modest count, no trails
 		for c in colors:
-			_circle_burst(field, pos, 30, 200, 380, c, 2.0, 100, 0.3, 10, 1.2, 2.0)
-	)
+			_circle_burst(field, pos, 18, 180, 360, c, 2.0, 100, 0.35, 0, 1.2, 2.0)
+	field._schedule(1.1, grand_shell)
