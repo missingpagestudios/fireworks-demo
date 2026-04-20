@@ -443,7 +443,8 @@ func _spawn_distant_meteor() -> void:
 		col = Color(1.0, 0.75, 0.40)
 	else:
 		col = Color(1.0, 0.55, 0.28)
-	var head_size: float = rng.randf_range(1.8, 2.6)
+	# Sized just under the strike meteor (which is size 14 / halo 2.6).
+	var head_size: float = rng.randf_range(9.0, 12.0)
 	spawn(Vector2(start_x, start_y), v, {
 		"color": col,
 		"size": head_size,
@@ -451,8 +452,8 @@ func _spawn_distant_meteor() -> void:
 		"gravity": 0.05,
 		"drag": 1.0,
 		"trail_len": rng.randi_range(120, 160),
-		"trail_color": Color(col.r * 0.95, col.g * 0.65, col.b * 0.35, 0.7),
-		"halo": 0.85,
+		"trail_color": Color(col.r * 0.95, col.g * 0.65, col.b * 0.35, 0.8),
+		"halo": 2.0,
 		"fade": "none",
 	})
 	# Inner-bright companion for thicker glowing head
@@ -463,8 +464,8 @@ func _spawn_distant_meteor() -> void:
 		"gravity": 0.05,
 		"drag": 1.0,
 		"trail_len": rng.randi_range(60, 90),
-		"trail_color": Color(1.0, 0.85, 0.55, 0.45),
-		"halo": 0.55,
+		"trail_color": Color(1.0, 0.85, 0.55, 0.55),
+		"halo": 1.1,
 		"fade": "none",
 	})
 
