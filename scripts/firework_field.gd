@@ -1005,11 +1005,13 @@ func _draw() -> void:
 				alpha = life_t
 		if alpha <= 0.001:
 			continue
-		# Trail collection (will be drawn in one batched call below).
+		# Trail collection (will be drawn in one batched draw_multiline_colors
+		# call below). The API takes 2 points per segment and ONE color per
+		# segment (colors.size() * 2 == points.size()).
 		# Particles with streak_length > 0 use a fixed-length backward streak
 		# along -velocity (good for very slow particles where frame-history
 		# would be too short to be visible). Otherwise use frame-history.
-		var streak_len: float = p.streak_length
+		var streak_len: float = p.get("streak_length", 0.0)
 		if streak_len > 0.0 and p.vel.length_squared() > 0.01:
 			var streak_dir: Vector2 = -p.vel.normalized()
 			var head: Vector2 = p.pos
@@ -1020,14 +1022,9 @@ func _draw() -> void:
 			for i in segs_n:
 				var t1: float = float(i) / float(segs_n)
 				var t2: float = float(i + 1) / float(segs_n)
-				var p1: Vector2 = head.lerp(tail, t1)
-				var p2: Vector2 = head.lerp(tail, t2)
-				segs.append(p1)
-				segs.append(p2)
-				var fade_a: float = (1.0 - t1) * base_a
-				var seg_col := Color(tc.r, tc.g, tc.b, fade_a)
-				cols.append(seg_col)
-				cols.append(seg_col)
+				segs.append(head.lerp(tail, t1))
+				segs.append(head.lerp(tail, t2))
+				cols.append(Color(tc.r, tc.g, tc.b, (1.0 - t1) * base_a))
 		else:
 			var trail: Array = p.trail
 			var trail_n: int = trail.size()
@@ -1038,10 +1035,7 @@ func _draw() -> void:
 				for i in trail_n - 1:
 					segs.append(trail[i])
 					segs.append(trail[i + 1])
-					var fade_a2: float = float(i) * inv_n * base_a2
-					var seg_col2 := Color(tc2.r, tc2.g, tc2.b, fade_a2)
-					cols.append(seg_col2)
-					cols.append(seg_col2)
+					cols.append(Color(tc2.r, tc2.g, tc2.b, float(i) * inv_n * base_a2))
 		# Spark texture — single draw call per particle
 		var c: Color = p.color
 		var radius: float = p.size * 3.4 * p.halo
