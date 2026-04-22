@@ -67,10 +67,11 @@ const NAME_OVERRIDES := {
 	"Kinetic Wireframe": "kinetic_wireframe_cube",
 }
 
-@onready var _sub_viewport: SubViewport = $SubViewportContainer/SubViewport
-@onready var _field: Node2D = $SubViewportContainer/SubViewport/FireworkField
+@onready var _sub_viewport: SubViewport = $SubViewport
+@onready var _field: Node2D = $SubViewport/FireworkField
 @onready var _status: Label = $StatusLabel
 @onready var _hint: Label = $HintLabel
+@onready var _preview: TextureRect = $PreviewRect
 
 var _queue: Array = []
 var _idx := -1
@@ -90,6 +91,10 @@ func _ready() -> void:
 	_sub_viewport.size = SUBVIEW_SIZE
 	_sub_viewport.transparent_bg = false
 	_sub_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+
+	# Live preview of the SubViewport's render target — useful for visually
+	# confirming each capture during the run.
+	_preview.texture = _sub_viewport.get_texture()
 
 	# Build queue from the canonical 50 (ids 1-50). Skip stress/cinematic.
 	var catalog: Array = FireworkBursts.catalog()
