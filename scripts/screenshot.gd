@@ -84,9 +84,11 @@ func _ready() -> void:
 	var out_abs := ProjectSettings.globalize_path(OUTPUT_DIR)
 	DirAccess.make_dir_recursive_absolute(out_abs)
 
-	# SubViewport setup — transparent background so saved PNG has alpha.
+	# SubViewport setup. We render WITH a dark background (additive blending
+	# doesn't deposit alpha properly on transparent_bg=true), then chroma-key
+	# the dark pixels to alpha in post (_capture_now).
 	_sub_viewport.size = SUBVIEW_SIZE
-	_sub_viewport.transparent_bg = true
+	_sub_viewport.transparent_bg = false
 	_sub_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 
 	# Build queue from the canonical 50 (ids 1-50). Skip stress/cinematic.
@@ -149,6 +151,13 @@ func _capture_now() -> void:
 	# in some renderer paths. Undo if needed (no-op if already correct).
 	# Comment this out if your output is upside down.
 	# img.flip_y()
+
+	# Chroma-key dark pixels to alpha. The SubViewport renders on the project's
+	# default_clear_color (near black, RGB ~ 0.02, 0.02, 0.05). For each pixel,
+	# new_alpha = max(R, G, B) — bright firework pixels stay opaque, dark
+	# background pixels become transparent.
+	_apply_luminance_alpha(img)
+
 	var entry: Dictionary = _queue[_idx]
 	var slug := _slugify(entry.name)
 	var path := OUTPUT_DIR.path_join("firework_%s.png" % slug)
@@ -156,6 +165,23 @@ func _capture_now() -> void:
 	if err != OK:
 		push_error("Failed to save %s: %d" % [path, err])
 		_status.text = "ERROR saving %s (code %d)" % [path, err]
+
+# Replace each pixel's alpha with its peak channel brightness. Effectively
+# converts black background to transparent while preserving all visible
+# fireworks pixels at full opacity-by-brightness.
+func _apply_luminance_alpha(img: Image) -> void:
+	img.convert(Image.FORMAT_RGBA8)
+	var w := img.get_width()
+	var h := img.get_height()
+	for y in h:
+		for x in w:
+			var c := img.get_pixel(x, y)
+			var a := max(c.r, max(c.g, c.b))
+			# Below this threshold, treat as background (cuts faint compression noise)
+			if a < 0.06:
+				img.set_pixel(x, y, Color(0, 0, 0, 0))
+			else:
+				img.set_pixel(x, y, Color(c.r, c.g, c.b, a))
 
 func _slugify(name: String) -> String:
 	if NAME_OVERRIDES.has(name):
