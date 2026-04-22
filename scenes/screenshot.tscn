@@ -18,6 +18,10 @@ offset_right = 1024.0
 offset_bottom = 1024.0
 color = Color(0, 0, 0, 1)
 
+[node name="Camera2D" type="Camera2D" parent="SubViewport"]
+position = Vector2(512, 512)
+zoom = Vector2(2.5, 2.5)
+
 [node name="FireworkField" type="Node2D" parent="SubViewport"]
 script = ExtResource("2_field")
 

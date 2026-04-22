@@ -12,12 +12,16 @@ extends Node2D
 
 const SUBVIEW_SIZE := Vector2i(1024, 1024)
 const OUTPUT_DIR := "user://sprites"
-# Bursts dispatched via FireworkBursts.burst() — no mortar trajectory.
-# Mortar/cake/airburst types spawn dead-center so the radial spread is symmetric.
+# Camera2D in the SubViewport zooms 2.5x — a 1024x1024 viewport at zoom 2.5
+# shows roughly a 410x410 world region centered on the camera position.
+# That's the right scale for typical 100-300px firework spreads to fill
+# most of the frame.
+# Mortar/cake/airburst types spawn dead-center; camera also at (512, 512).
 const BURST_CENTER := Vector2(512, 512)
 # Ground-emitting types (sparkler, fountain, spinner, snake) emit upward —
-# spawn lower so the upward flow stays in frame.
-const GROUND_POS := Vector2(512, 820)
+# spawn near the bottom of the visible window (camera at 512, visible 307-717
+# at zoom 2.5) so the upward flow fills the upper portion of the frame.
+const GROUND_POS := Vector2(512, 680)
 
 # Per-firework capture timing (seconds after spawn). Now tuned for direct
 # burst dispatch (no mortar wait). Default = 1.5s for unspecified entries.
