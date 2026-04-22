@@ -175,8 +175,8 @@ func _apply_luminance_alpha(img: Image) -> void:
 	var h := img.get_height()
 	for y in h:
 		for x in w:
-			var c := img.get_pixel(x, y)
-			var a := max(c.r, max(c.g, c.b))
+			var c: Color = img.get_pixel(x, y)
+			var a: float = maxf(c.r, maxf(c.g, c.b))
 			# Below this threshold, treat as background (cuts faint compression noise)
 			if a < 0.06:
 				img.set_pixel(x, y, Color(0, 0, 0, 0))
