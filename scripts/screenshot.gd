@@ -12,37 +12,52 @@ extends Node2D
 
 const SUBVIEW_SIZE := Vector2i(1024, 1024)
 const OUTPUT_DIR := "user://sprites"
-const SPAWN_GROUND := Vector2(512, 980)   # where mortars/ground fireworks originate
+# Bursts dispatched via FireworkBursts.burst() — no mortar trajectory.
+# Mortar/cake/airburst types spawn dead-center so the radial spread is symmetric.
+const BURST_CENTER := Vector2(512, 512)
+# Ground-emitting types (sparkler, fountain, spinner, snake) emit upward —
+# spawn lower so the upward flow stays in frame.
+const GROUND_POS := Vector2(512, 820)
 
-# Per-firework override of when (in seconds) to capture peak bloom.
-# Default heuristic: 0.45 × settle_time. Overrides tune visually-best frame.
+# Per-firework capture timing (seconds after spawn). Now tuned for direct
+# burst dispatch (no mortar wait). Default = 1.5s for unspecified entries.
+const DEFAULT_CAPTURE := 1.5
 const PEAK_OVERRIDE := {
-	"Sparkler": 1.5,
+	"Sparkler": 1.8,
 	"Fountain": 2.5,
 	"Ground Spinner": 2.0,
-	"Black Snake": 2.0,
-	"Smoke Bomb": 2.5,
-	"Crackle Ball": 2.2,
-	"Firecracker": 0.4,
-	"Roman Candle": 3.5,
-	"Repeater Cake": 4.0,
-	"Mine": 1.0,
-	"Salute": 1.2,
-	"Pro Salute": 1.4,
+	"Black Snake": 2.5,
+	"Smoke Bomb": 2.0,
+	"Crackle Ball": 1.0,
+	"Firecracker": 0.3,
+	"Roman Candle": 3.0,
+	"Repeater Cake": 3.5,
+	"Mine": 0.8,
+	"Salute": 0.5,
+	"Pro Salute": 0.6,
 	# Sustained / drifting bursts — capture late
-	"Willow": 3.5,
-	"Strobe Willow": 3.5,
-	"Brocade": 3.5,
-	"Kamuro": 3.5,
-	"Aurora Cascade": 4.5,
-	"Drone Swarm": 3.5,
-	"Holo Letter": 3.0,
-	"Nano Fractal": 3.5,
-	"Plasma Vortex": 3.0,
-	"Black Hole Shell": 3.5,
-	"Kinetic Wireframe": 3.5,
-	"Gravity Loop": 3.5,
-	"Singularity": 4.0,
+	"Willow": 2.5,
+	"Strobe Willow": 2.5,
+	"Brocade": 2.5,
+	"Kamuro": 2.5,
+	"Palm Tree": 2.0,
+	"Glitter Palm": 2.2,
+	"Aurora Cascade": 3.5,
+	"Drone Swarm": 3.0,
+	"Holo Letter": 2.5,
+	"Nano Fractal": 2.8,
+	"Plasma Vortex": 2.2,
+	"Black Hole Shell": 2.5,
+	"Kinetic Wireframe": 2.8,
+	"Gravity Loop": 2.5,
+	"Singularity": 3.0,
+	"Heart Shell": 1.2,
+	"Smiley Face": 1.2,
+	"Ring Shell": 1.0,
+	"Spider": 1.2,
+	"Horsetail": 1.5,
+	"Multibreak": 2.0,
+	"Crossette": 1.6,
 }
 
 # Demo firework name → balance_v2 config slug (filename portion).
@@ -137,11 +152,20 @@ func _advance_to_next() -> void:
 		return
 	var entry: Dictionary = _queue[_idx]
 	_field.clear_all()
-	# Compute capture timing: per-firework override, else 45% of settle_time.
-	var settle: float = float(entry.get("settle_time", 5.0))
-	_capture_at = float(PEAK_OVERRIDE.get(entry.name, settle * 0.45))
-	# Fire the firework into the SubViewport's field.
-	_field.launch(entry, SPAWN_GROUND)
+	# Capture timing: per-firework override else default 1.5s
+	_capture_at = float(PEAK_OVERRIDE.get(entry.name, DEFAULT_CAPTURE))
+	# Spawn the burst directly — bypass mortar trajectory. Pos depends on
+	# launch type: aerial bursts dead-center, ground emitters lower.
+	var pos := _spawn_pos_for(entry)
+	var fw_id := int(entry.id)
+	# Repeater Cake (id 11) has no direct burst — it's a sequence of mortars.
+	# Fire 3 small peonies (id 15) at offsets to convey the multi-burst feel.
+	if fw_id == 11:
+		FireworkBursts.burst(15, _field, pos + Vector2(-180, -40))
+		FireworkBursts.burst(15, _field, pos + Vector2(0, 40))
+		FireworkBursts.burst(15, _field, pos + Vector2(180, -40))
+	else:
+		FireworkBursts.burst(fw_id, _field, pos)
 	_status.text = "[%d/%d] %s — capturing at %.1fs" % [
 		_idx + 1, _queue.size(), entry.name, _capture_at
 	]
@@ -187,6 +211,15 @@ func _apply_luminance_alpha(img: Image) -> void:
 				img.set_pixel(x, y, Color(0, 0, 0, 0))
 			else:
 				img.set_pixel(x, y, Color(c.r, c.g, c.b, a))
+
+func _spawn_pos_for(entry: Dictionary) -> Vector2:
+	# Ground-level emitters (sparkler, fountain, spinner, snake, mine) shoot
+	# upward — spawn lower so the spread stays in frame. Everything else is
+	# an airburst that should explode dead-center.
+	var kind: String = entry.get("launch", "mortar")
+	if kind == "ground" or kind == "none":
+		return GROUND_POS
+	return BURST_CENTER
 
 func _slugify(name: String) -> String:
 	if NAME_OVERRIDES.has(name):
