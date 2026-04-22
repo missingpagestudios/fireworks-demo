@@ -27,6 +27,7 @@ const GROUND_POS := Vector2(512, 680)
 # burst dispatch (no mortar wait). Default = 1.5s for unspecified entries.
 const DEFAULT_CAPTURE := 1.5
 const PEAK_OVERRIDE := {
+	# Tier 1
 	"Sparkler": 1.8,
 	"Fountain": 2.5,
 	"Ground Spinner": 2.0,
@@ -35,33 +36,51 @@ const PEAK_OVERRIDE := {
 	"Crackle Ball": 1.0,
 	"Firecracker": 0.3,
 	"Roman Candle": 3.0,
-	"Repeater Cake": 3.5,
+	"Bottle Rocket": 0.4,
+	"Small Mortar": 0.5,
+	# Tier 2
+	"Repeater Cake": 1.5,
+	"Whistler Shell": 0.5,
+	"Comet": 1.0,
 	"Mine": 0.8,
+	"Small Peony": 1.0,
+	"Small Chrysanthemum": 1.2,
+	"Strobe Shell": 1.5,
 	"Salute": 0.5,
-	"Pro Salute": 0.6,
-	# Sustained / drifting bursts — capture late
+	"Glitter Mine": 1.5,
+	"Star Shell": 1.5,
+	# Tier 3 — Pro Aerial
+	"Peony": 1.2,
+	"Chrysanthemum": 1.5,
+	"Dahlia": 1.5,
 	"Willow": 2.5,
-	"Strobe Willow": 2.5,
+	"Palm Tree": 2.0,
+	"Crossette": 1.6,
 	"Brocade": 2.5,
 	"Kamuro": 2.5,
-	"Palm Tree": 2.0,
-	"Glitter Palm": 2.2,
-	"Aurora Cascade": 3.5,
-	"Drone Swarm": 3.0,
-	"Holo Letter": 2.5,
-	"Nano Fractal": 2.8,
-	"Plasma Vortex": 2.2,
-	"Black Hole Shell": 2.5,
-	"Kinetic Wireframe": 2.8,
-	"Gravity Loop": 2.5,
-	"Singularity": 3.0,
+	"Spider": 0.8,
+	"Horsetail": 1.5,
+	"Ring Shell": 1.0,
 	"Heart Shell": 1.2,
 	"Smiley Face": 1.2,
-	"Ring Shell": 1.0,
-	"Spider": 1.2,
-	"Horsetail": 1.5,
-	"Multibreak": 2.0,
-	"Crossette": 1.6,
+	"Star Pattern": 1.2,
+	"Multibreak": 1.0,
+	"Color-Change Peony": 1.5,
+	"Strobe Willow": 2.5,
+	"Glitter Palm": 2.2,
+	"Hummer": 1.5,
+	"Pro Salute": 0.6,
+	# Tier 4 — Futuristic. Need to catch the developed visual.
+	"Drone Swarm": 1.4,
+	"Quantum Bloom": 1.0,
+	"Holo Letter": 1.5,
+	"Nano Fractal": 1.5,
+	"Plasma Vortex": 1.5,
+	"Black Hole Shell": 1.2,
+	"Aurora Cascade": 2.5,
+	"Kinetic Wireframe": 1.8,
+	"Gravity Loop": 1.5,
+	"Singularity": 2.0,
 }
 
 # Demo firework name → balance_v2 config slug (filename portion).
@@ -210,11 +229,10 @@ func _apply_luminance_alpha(img: Image) -> void:
 		for x in w:
 			var c: Color = img.get_pixel(x, y)
 			var a: float = maxf(c.r, maxf(c.g, c.b))
-			# Below this threshold, treat as background (cuts faint compression noise)
-			if a < 0.06:
-				img.set_pixel(x, y, Color(0, 0, 0, 0))
-			else:
-				img.set_pixel(x, y, Color(c.r, c.g, c.b, a))
+			# No threshold — preserve all luminance contributions. Pure black BG
+			# (RGB 0,0,0) becomes alpha 0 naturally; everything else keeps its
+			# brightness as alpha. Faint glows survive instead of being culled.
+			img.set_pixel(x, y, Color(c.r, c.g, c.b, a))
 
 func _spawn_pos_for(entry: Dictionary) -> Vector2:
 	# Ground-level emitters (sparkler, fountain, spinner, snake, mine) shoot
